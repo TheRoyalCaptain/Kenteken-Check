@@ -2,19 +2,21 @@ manifestVersion: 1
 id: kenteken-check
 category: utilities
 name: Kenteken Check
-version: "0.2.0"
+version: "0.3.0"
 tagline: Nederlandse voertuiggegevens zonder betaalmuur
 description: >-
-  Een compact voertuigoverzicht met openbare RDW-gegevens over registratie,
-  APK, tellerstandoordeel, motor, WLTP, emissies, gewichten, trekvermogen,
-  keuringen, gebreken en terugroepacties. Zoek in alle gegevens, bewaar
-  favorieten en vergelijk twee voertuigen. Geen betaalde API nodig.
+  Bekijk alle ontvangen kentekengegevens met een duidelijke status per bron:
+  beschikbaar, niet beschikbaar of ophalen mislukt. De app gebruikt 32
+  relevante officiële RDW-datasets en toont historische gebeurtenissen,
+  typegoedkeuringsgegevens en opgeslagen waarnemingen. Een optionele externe
+  API-koppeling gebruikt je eigen sleutel. Geen gegevens worden als compleet
+  voorgesteld wanneer de bron ze niet levert.
 releaseNotes: >-
-  Volledig vernieuwde compacte interface met acht kerngegevens, tabbladen
-  en zoeken in alle velden. Uitgebreid van zes naar twaalf RDW-datasets,
-  met keuringsmeldingen, gebreken en passende omschrijvingen, ingebouwde
-  objecten en terugroepacties met defect, herstelmaatregel en voertuigstatus.
-  Meer motor-, energie- en WLTP-informatie in een eigen tabblad.
+  Alle ontvangen velden zichtbaar, inclusief oorspronkelijke datumwaarden,
+  bronlinks en lege waarden. Nieuw: bronnenoverzicht met veldbeschikbaarheid,
+  historie met gedateerde gebeurtenissen en bewaarde wijzigingen, volledige
+  historie-export en exacte typegoedkeuringskoppelingen. Uitbreiding van twaalf
+  naar 32 officiële RDW-datasets. Externe koppeling optioneel via eigen API-sleutel.
 developer: Kevin van Krugten
 website: https://github.com/TheRoyalCaptain/Kenteken-Check
 dependencies: []

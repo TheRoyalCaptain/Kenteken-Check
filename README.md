@@ -1,65 +1,73 @@
-# Kenteken Check
+# Kenteken Check — 0.3.0
 
-Een compacte kentekenwebapp voor Nederlandse voertuigen, met twaalf officiële RDW-datasets. Zelf te hosten in Umbrel, zonder betaalde API of API-sleutel.
+Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
 
-## Versie 0.2.0
+## Wat is toegevoegd?
 
-Volledig vernieuwde interface met een compacte zoekbalk, acht kerngegevens en tabbladen voor overzicht, techniek, motor en energie, keuringen, terugroepacties, extra en alle gegevens. Zoek op veldnaam of inhoud door alle beschikbare gegevens. Lege velden worden in het overzicht weggelaten.
+- Alle **32 relevante officiële RDW-datasets** uit de gecontroleerde catalogus zijn gekoppeld: 14 op kenteken, 6 op gevonden referentiecodes en 12 op typegoedkeuring.
+- Status per dataset: **Beschikbaar**, **Niet beschikbaar** of **Ophalen mislukt**, met reden en aantal records. Een lege bron wordt niet als geslaagd resultaat met volledige informatie gepresenteerd.
+- Het tabblad **Alle ontvangen data** toont alle daadwerkelijk ontvangen velden, inclusief kenteken, bronlinks, oorspronkelijke datum/tijdvelden, lege strings, nullwaarden, onbekende velden en geneste externe JSON. Er worden geen velden weggefilterd. Meerdere records zijn uitklapbaar.
+- Het tabblad **Bronnen** toont ook welke catalogusvelden wel of niet voor het kenteken zijn geleverd.
+- **Historie** combineert gedateerde registratiegebeurtenissen, beschikbare keuringsmeldingen, gebreken, objectmontages en terugroeppublicaties. Het bewaart daarnaast eigen waarnemingen en veranderingen sinds het opzoeken in deze app.
+- Een volledige geschiedenis-export bevat de bewaarde oorspronkelijke gegevens per waarneming.
+- Optionele externe koppeling met de gedocumenteerde gratis API van 123kentekencheck.nl. Zonder persoonlijke sleutel wordt deze bron als niet beschikbaar / niet aangesloten vermeld.
+- Ook zonder actuele basisregistratie worden onafhankelijke datasets en opgeslagen historie getoond.
 
-Extra gegevens: keuringsmeldingen, geconstateerde gebreken met omschrijvingen die passen bij de keuringsdatum, ingebouwde objecten en kentekengebonden terugroepstatussen met actieomschrijving, mogelijke gevolgen en herstelmaatregel. Motorvermogen, WLTP-verbruik, elektrische actieradius en emissies zijn zichtbaar in een eigen tabblad wanneer geregistreerd.
+## Installeren en bijwerken
 
-Favorieten en recente zoekopdrachten blijven op hetzelfde apparaat. Vergelijk twee voertuigen, download het volledige JSON-resultaat of druk het compacte overzicht af als PDF.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.3.0**. Herlaad de pagina na de update. Poort: 8767.
 
-## Installeren of bijwerken in Umbrel
+De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
-1. Controleer de [buildstatus](https://github.com/TheRoyalCaptain/Kenteken-Check/actions).
-2. Voeg in App Store → Community App Stores `https://github.com/TheRoyalCaptain/Kenteken-Check` toe.
-3. Installeer **Kenteken Check**, of vernieuw de store en installeer de update naar **0.2.0**.
-4. Herlaad de webapp na de update. Poort: 8767.
+## Bronnen en koppeling
 
-Umbrel verzorgt het toegangsscherm. De container gebruikt intern poort 8080. Internettoegang naar `opendata.rdw.nl` is nodig. De GHCR-image moet openbaar zijn; controleer bij een downloadfout GitHub → Packages → kenteken-check → Package settings → visibility. GitHub Actions bouwt AMD64 en ARM64.
+De meegeleverde `rdw_catalog.json` is gecontroleerd tegen de officiële Socrata-catalogus van `opendata.rdw.nl` op **9 oktober 2026**. De app gebruikt alle 32 relevante voertuig-, keuring-, terugroep-, telleruitleg- en typegoedkeuringsdatasets uit die inventarisatie. Geen aparte aanvragen naar communityfilters die dezelfde onderliggende RDW-data dupliceren, en geen willekeurige koppelingen naar parkeerdata, bedrijfsregisters of tariefcatalogi die niet bij het voertuig horen.
 
-## Databronnen
+Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuigsubcategorie (`2ba7-embk`), voertuigbijzonderheden (`7ug8-2dtt`) en rupsbanden (`3xwf-ince`). Terugroepgevaren (`9ihi-jgpf`), informeren (`mh8w-8cup`) en modellen (`mu2x-mu5e`) zijn gekoppeld op een terugroepreferentie die voor dit kenteken gevonden is. De modellenlijst beschrijft de actie en is geen lijst van eigenschappen van dit individuele voertuig. Telleruitleg (`jqs4-4kvw`) gebruikt de geregistreerde toelichtingscode.
 
-| Onderdeel | Officiële RDW-dataset |
-|---|---|
-| Voertuigregistratie | [m9d7-ebf2](https://opendata.rdw.nl/d/m9d7-ebf2) |
-| Brandstof, motor en emissies | [8ys7-d773](https://opendata.rdw.nl/d/8ys7-d773) |
-| Assen | [3huj-srit](https://opendata.rdw.nl/d/3huj-srit) |
-| Carrosserie | [vezc-m2t6](https://opendata.rdw.nl/d/vezc-m2t6) |
-| Specifieke carrosserie | [jhie-znh9](https://opendata.rdw.nl/d/jhie-znh9) |
-| Voertuigklasse | [kmfi-hrps](https://opendata.rdw.nl/d/kmfi-hrps) |
-| Keuringsmeldingen | [sgfe-77wx](https://opendata.rdw.nl/d/sgfe-77wx) |
-| Geconstateerde gebreken | [a34c-vvps](https://opendata.rdw.nl/d/a34c-vvps) |
-| Gebrekbeschrijvingen | [hx2c-gt7k](https://opendata.rdw.nl/d/hx2c-gt7k) |
-| Ingebouwde objecten | [sghb-dzxx](https://opendata.rdw.nl/d/sghb-dzxx) |
-| Kentekengebonden terugroepstatus | [t49b-isb7](https://opendata.rdw.nl/d/t49b-isb7) |
-| Terugroepactie-details | [j9yg-7rg9](https://opendata.rdw.nl/d/j9yg-7rg9) |
+De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
 
-De app haalt tien datasets op kenteken op. Omschrijvingen en actiedetails worden aanvullend op de gevonden codes opgehaald; bij geen codes is geen aanvullende aanvraag nodig. Er wordt geen recall op alleen merk of model als een bevestigde actie voor dit kenteken gepresenteerd.
+## Externe gegevens
 
-## Interpretatie en beschikbaarheid
+De optionele integratie gebruikt de gedocumenteerde endpoints:
 
-Gegevens zijn een momentopname. Een keuringsconstatering bewijst niet dat het gebrek nu nog aanwezig is. Een lege dataset bewijst niet dat een voertuig probleemvrij is. Keuringsmeldingen zijn geen volledige onderhouds-, APK- of schadehistorie. Geen eigenaargegevens, exacte kilometerstand of marktwaardeschatting. Tellerstandoordeel en tellerstand zijn verschillende gegevens.
+- `/api/v1/kenteken/{kenteken}`
+- `/api/v1/kenteken/{kenteken}/apk`
+- `/api/v1/kenteken/{kenteken}/terugroepacties`
+- `/api/v1/kenteken/{kenteken}/waarde`
 
-Vermogen wordt per RDW-brandstofregistratie getoond en bij hybrides niet bij elkaar opgeteld. WLTP en NEDC blijven apart gelabeld. De importindicatie is afgeleid van een eerste registratie in Nederland die later ligt dan de eerste toelating. Ontbrekende datums leveren geen importoordeel op.
+Deze bron adverteert een gratis API met een persoonlijke sleutel en fair-use-limieten. De provider bepaalt welke gegevens per kenteken worden geleverd. API-key aanvragen: `https://123kentekencheck.nl/api/aanmelden`. Zet de ontvangen sleutel zelf in de containeromgeving als `KENTEKEN_API_KEY`; zet geen sleutel in GitHub. De composebestanden ondersteunen deze omgevingsvariabele. Op Umbrel moet de variabele in de daadwerkelijk gebruikte containerconfiguratie beschikbaar zijn. Zonder sleutel wordt er geen aanvraag naar deze provider gedaan.
 
-Bij een onbereikbare aanvullende bron blijven andere gegevens beschikbaar en is de storing zichtbaar. Historische gebrekbeschrijvingen worden geselecteerd op de geldigheidsperiode op de keuringsdatum. Als geen passende omschrijving bestaat, blijft de code zichtbaar. Langere datasets worden met paginering opgehaald; boven de limiet van 5000 regels wordt een expliciete fout getoond in plaats van een stil ingekort resultaat.
+De externe adapter bewaart en toont de gehele JSON-respons zonder een onbekend schema als officiële feiten te interpreteren. Waarde-indicaties zijn externe schattingen. Deze integratie is met gecontroleerde antwoorden getest; een persoonlijke sleutel is hier niet beschikbaar, dus een echte geautoriseerde providerrespons is niet getest. De standaard RDW-koppelingen zijn live getest.
 
-## Bewaren en privacy
+## Wat betekent “alle data”?
 
-De cache staat in `/data/cache.sqlite` en blijft behouden bij updates. Volledige resultaten worden maximaal een uur hergebruikt; **Vernieuwen** haalt opnieuw op. De schemawijziging negeert oude cache-uitkomsten, zodat de nieuwe onderdelen direct kunnen worden opgehaald. Onvolledige resultaten worden niet gecachet. Cachegegevens ouder dan zeven dagen worden bij een succesvolle nieuwe aanvraag verwijderd.
+Alle gegevens die de aangesloten bronnen bij een succesvolle aanvraag leveren, worden behouden en zijn zichtbaar of uitklapbaar. Ontbrekende velden worden niet ingevuld met verzonnen waarden. **Dit betekent niet dat alle informatie die ooit over een voertuig heeft bestaan openbaar beschikbaar is.**
 
-Favorieten en recente zoekopdrachten staan in browseropslag, blijven bij dezelfde URL behouden en verdwijnen als je websitegegevens wist. Kentekens worden naar de RDW gestuurd voor een zoekopdracht. Er is geen analytics of externe tracking.
+Kilometerstandhistorie, volledige eigenaarshistorie, volledige schadehistorie, onderhoudsbeurten en advertentiehistorie worden expliciet als niet beschikbaar via de aangesloten bronnen vermeld. Een laatste tenaamstellingsdatum is geen reeks eigenaarwisselingen. Het RDW-voertuigrapport kan aanvullende historie bevatten, maar vereist toegang van de eigenaar/houder via DigiD of zakelijke authenticatie en is geen openbare API. Er worden geen betaalmuren, inlogschermen of anti-botbeperkingen omzeild.
 
-## Ontwikkeling en controles
+Historische websites zijn onderzocht. Andere RDW-overzichten zonder geverifieerde openbare API zijn niet als werkende historische bron toegevoegd. De app beweert niet dat ontbrekende historie niet bestaat; alleen dat ze via de aangesloten bronnen niet geleverd wordt. Een storing krijgt de aparte status **Ophalen mislukt**.
 
-- `DATA_DIR=./data python app.py`: ontwikkelserver op `http://127.0.0.1:8080`.
-- `docker compose up --build -d`: Gunicorn op `http://127.0.0.1:8767`.
-- `python -m unittest discover -s tests -v`: backendtests.
-- `node --check static/app.js`: JavaScript-syntaxis.
-- Installeer Playwright voor de browserchecks: `npm install --no-save --package-lock=false playwright@1.61.1`, `npx playwright install --with-deps chromium`, vervolgens `node tests/browser-smoke.cjs`.
+## Historie en bewaren
 
-De browserchecks testen tabbladen, zoeken in gegevens, twee brandstoffen, terugroepdetails, fouten, lege resultaten, favorieten, vergelijken, JSON-export en layout op 320/390 pixels. GitHub Actions voert deze controles uit vóór het publiceren van de container.
+Waarnemingen staan in `/data/cache.sqlite` en blijven bij updates bestaan. De eerste waarneming komt uit de eerste zoekopdracht, of uit een nog aanwezige cache van een eerdere appversie. De oorspronkelijke ophaaldatum wordt behouden. Een latere eigen waarneming is **geen bewezen datum waarop de voertuigwijziging werkelijk plaatsvond**. Bij een storing wordt geen verdwenen voertuiggegeven als een wijziging gepresenteerd. Een andere volgorde van dezelfde bronrecords levert geen wijziging op.
 
-De productie-app gebruikt alleen Python, Gunicorn en de meegeleverde statische bestanden. Geen Node-runtime vereist. Installatie en toegang via Umbrel moeten op de eigen server worden gecontroleerd.
+Er wordt niet op de achtergrond dagelijks gecontroleerd: nieuwe waarnemingen ontstaan bij zoekopdrachten die verse gegevens ophalen of bij **Vernieuwen**. Er is geen gereconstrueerde historie van vóór de eerste bewaarde waarneming. Snapshots worden niet automatisch verwijderd, zodat je historie behouden blijft; de opslag groeit met het aantal wijzigingen.
+
+Volledige resultaten worden maximaal een uur gecachet. Vernieuwen haalt opnieuw op. Aanvullende bronstoringen worden zichtbaar gemeld en dergelijke resultaten worden niet gecachet. Oude cachegegevens worden na zeven dagen bij een geslaagde aanvraag opgeschoond; de historie blijft bewaard. De update gebruikt een nieuwe schemaversie, zodat oude cache niet als een volledig nieuw resultaat wordt getoond.
+
+Alle bronpagina's worden met paginering opgehaald; er is geen vaste limiet van 5000 records meer. Time-outs, een te groot individueel antwoord of fouten blijven mogelijk en krijgen een foutstatus. Geen stil afgekapt resultaat.
+
+Favorieten en recente zoekopdrachten staan in de browser. Kentekens worden verstuurd naar de benodigde RDW-bronnen en, alleen met een ingestelde sleutel, de externe provider. Geen analytics of tracking.
+
+## Ontwikkeling en tests
+
+- `DATA_DIR=./data python app.py`
+- `docker compose up --build -d`
+- `python -m unittest discover -s tests -v`
+- `node --check static/app.js`
+- `npm install --no-save --package-lock=false playwright@1.61.1`
+- `npx playwright install --with-deps chromium`
+- `node tests/browser-smoke.cjs`
+
+GitHub Actions voert backend- en browsercontroles uit vóór het bouwen van de container. Tests controleren bronstatussen, exacte koppelingen, paginering, historische snapshots, ontbrekende sleutels, tabbladen, oorspronkelijke velden, zoeken, favorieten, vergelijken, export en de mobiele layout. Installatie en werking via Umbrel moeten op de eigen server worden gecontroleerd.

@@ -1,4 +1,6 @@
 """Kenteken Check: WSGI application with no framework dependencies."""
+import itertools
+import hashlib
 import json
 import mimetypes
 import os
@@ -24,13 +26,31 @@ DATASETS = {
     'gebreken': ('a34c-vvps', 'Geconstateerde gebreken'),
     'objecten': ('sghb-dzxx', 'Ingebouwde objecten'),
     'terugroepstatus': ('t49b-isb7', 'Terugroepstatus'),
+    'keuringsvervaldata': ('vkij-7mwc', 'Keuringsvervaldata'),
+    'subcategorie': ('2ba7-embk', 'Voertuigsubcategorie'),
+    'bijzonderheden': ('7ug8-2dtt', 'Voertuigbijzonderheden'),
+    'rupsbanden': ('3xwf-ince', 'Rupsbanden'),
 }
 RELATED = {
     'gebrekbeschrijvingen': ('hx2c-gt7k', 'Gebrekbeschrijvingen'),
     'terugroepdetails': ('j9yg-7rg9', 'Terugroepacties'),
+    'terugroeprisico': ('9ihi-jgpf', 'Terugroepgevaren'),
+    'terugroepinformeren': ('mh8w-8cup', 'Informeren bij terugroepactie'),
+    'terugroepmodellen': ('mu2x-mu5e', 'Modellen bij bevestigde terugroepactie'),
+    'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
+TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
+                  for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
+ALL_RDW = {**DATASETS, **RELATED, **TYPE_APPROVALS}
+EXTERNALS = {
+    'extern_voertuig': ('', 'Aanvullend voertuigrapport'),
+    'extern_apk': ('/apk', 'Aanvullende APK-gegevens'),
+    'extern_recalls': ('/terugroepacties', 'Aanvullende terugroepgegevens'),
+    'extern_waarde': ('/waarde', 'Externe waarde-indicatie'),
+}
 
 class LookupError(Exception):
     def __init__(self, message, status=503):
@@ -47,14 +67,16 @@ def database():
     DATA.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DATA / 'cache.sqlite', timeout=10)
     db.execute('CREATE TABLE IF NOT EXISTS cache (plate TEXT PRIMARY KEY, fetched REAL, payload TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY, plate TEXT, observed REAL, last_seen REAL, hash TEXT, payload TEXT)')
+    db.execute('CREATE INDEX IF NOT EXISTS observation_plate ON observations(plate, observed)')
     return db
 
 def fetch_rows(dataset, label, filters):
     rows = []
-    for offset in range(0, 5000, 1000):
+    for offset in itertools.count(0, 1000):
         params = dict(filters, **{'$limit': 1000, '$offset': offset})
         url = f'https://opendata.rdw.nl/resource/{dataset}.json?' + urlencode(params)
-        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.2.0', 'Accept': 'application/json'})
+        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.3.0', 'Accept': 'application/json'})
         try:
             with urlopen(request, timeout=12) as response:
                 raw = response.read(4_000_001)
@@ -68,7 +90,6 @@ def fetch_rows(dataset, label, filters):
                 return rows
         except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
             raise LookupError(f'{label} kon niet worden opgehaald. Probeer het later opnieuw.') from exc
-    raise LookupError(f'{label} bevat te veel regels om volledig op te halen.')
 
 def fetch_dataset(key, plate):
     dataset, label = DATASETS[key]
@@ -83,24 +104,108 @@ def fetch_related(key, field, codes):
     dataset, label = RELATED[key]
     return fetch_rows(dataset, label, {'$where': f'{field} in ({values})', '$order': field})
 
-def enrich(sections, warnings):
+UNAVAILABLE_HISTORY = {
+    'tellerhistorie': ('Kilometerstandhistorie', 'Niet beschikbaar via open data. Het RDW-voertuigrapport vereist toegang van de eigenaar/houder.', 'https://www.rdw.nl/uw-voertuig-en-uw-gegevens/informatie-over-uw-voertuig/rdw-voertuigrapport-aanvragen'),
+    'eigenaarhistorie': ('Volledige eigenaarshistorie', 'Niet beschikbaar via de aangesloten openbare bronnen; een laatste tenaamstellingsdatum is geen volledige eigenaarshistorie.', 'https://www.rdw.nl/over-rdw/dienstverlening/open-data/algemene-informatie'),
+    'schadehistorie': ('Volledige schadehistorie', 'Geen openbare bron aangesloten die een volledige schadehistorie op kenteken levert.', ''),
+    'onderhoudshistorie': ('Volledige onderhoudshistorie', 'Geen openbare bron aangesloten die onderhoudsbeurten op kenteken levert.', ''),
+    'advertentiehistorie': ('Advertentiehistorie', 'Geen geverifieerde openbare API voor historische advertenties aangesloten.', ''),
+}
+
+def source_metadata():
+    catalog = {row['id']: row for row in CATALOG['datasets']}
+    sources = {}
+    for key, (dataset, label) in ALL_RDW.items():
+        kind = 'typegoedkeuring' if key in TYPE_APPROVALS else 'kenteken' if key in DATASETS else 'referentie'
+        sources[key] = {'label': label, 'url': f'https://opendata.rdw.nl/d/{dataset}', 'scope': kind,
+                        'fields': catalog.get(dataset, {}).get('fields', {}), 'provider': 'RDW'}
+    for key, (_, label) in EXTERNALS.items():
+        sources[key] = {'label': label, 'url': 'https://123kentekencheck.nl/api/aanmelden', 'scope': 'extern', 'provider': '123kentekencheck.nl', 'fields': {}}
+    for key, (label, reason, url) in UNAVAILABLE_HISTORY.items():
+        sources[key] = {'label': label, 'url': url, 'scope': 'historie', 'provider': 'Beschikbaarheid historie', 'fields': {}}
+    return sources
+
+def fetch_approval(key, vehicle):
+    number = vehicle.get('typegoedkeuringsnummer')
+    if not number:
+        return [], 'Geen typegoedkeuringsnummer geregistreerd.'
+    dataset, label = TYPE_APPROVALS[key]
+    columns = next(row['fields'] for row in CATALOG['datasets'] if row['id'] == dataset)
+    filters = {'typegoedkeuringsnummer': number}
+    # Only exact matches. Do not substitute a nearby model or drop revision digits.
+    if 'codevarianttgk' in columns or 'codevariantgk' in columns:
+        if not vehicle.get('variant') or not vehicle.get('uitvoering'):
+            return [], 'Variant of uitvoering ontbreekt; geen betrouwbare koppeling mogelijk.'
+        filters['codevarianttgk' if 'codevarianttgk' in columns else 'codevariantgk'] = vehicle['variant']
+        filters['codeuitvoeringtgk'] = vehicle['uitvoering']
+    order = ','.join(k for k in ['typegoedkeuringsnummer', 'volgnummerrevisieuitvoering'] if k in columns)
+    return fetch_rows(dataset, label, dict(filters, **{'$order': order})), None
+
+def fetch_external(key, plate):
+    token = os.environ.get('KENTEKEN_API_KEY')
+    if not token:
+        return [], 'Een persoonlijke API-sleutel ontbreekt; deze externe bron is niet aangesloten.'
+    suffix, label = EXTERNALS[key]
+    request = Request(f'https://123kentekencheck.nl/api/v1/kenteken/{plate}{suffix}',
+                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.3.0', 'Accept': 'application/json'})
+    try:
+        with urlopen(request, timeout=12) as response:
+            raw = response.read(4_000_001)
+            if len(raw) > 4_000_000:
+                raise ValueError('Response too large')
+            payload = json.loads(raw)
+        if not isinstance(payload, (list, dict)):
+            raise ValueError('Invalid provider response')
+        if isinstance(payload, dict) and (payload.get('error') or payload.get('success') is False):
+            raise ValueError('Provider returned error')
+        rows = payload if isinstance(payload, list) and all(isinstance(r, dict) for r in payload) else [payload]
+        if not payload:
+            rows = []
+        return rows, None
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        raise LookupError(f'{label} kon niet worden opgehaald. Controleer de API-sleutel of probeer later opnieuw.') from exc
+
+def enrich(sections, warnings, reasons=None):
+    reasons = reasons if reasons is not None else {}
+    vehicle = sections['voertuig'][0] if sections.get('voertuig') else {}
+    recalls = [r['referentiecode_rdw'] for r in sections.get('terugroepstatus') or [] if r.get('referentiecode_rdw')]
     jobs = {
         'gebrekbeschrijvingen': ('gebrek_identificatie', [r['gebrek_identificatie'] for r in sections.get('gebreken') or [] if r.get('gebrek_identificatie')]),
-        'terugroepdetails': ('referentiecode_rdw', [r['referentiecode_rdw'] for r in sections.get('terugroepstatus') or [] if r.get('referentiecode_rdw')]),
+        'terugroepdetails': ('referentiecode_rdw', recalls),
+        'terugroeprisico': ('referentiecode_rdw', recalls),
+        'terugroepinformeren': ('referentiecode_rdw', recalls),
+        'terugroepmodellen': ('referentiecode_rdw', recalls),
+        'telleruitleg': ('code_toelichting_tellerstandoordeel', [vehicle['code_toelichting_tellerstandoordeel']] if vehicle.get('code_toelichting_tellerstandoordeel') else []),
     }
-    parents = {'gebrekbeschrijvingen': 'gebreken', 'terugroepdetails': 'terugroepstatus'}
+    parents = {'gebrekbeschrijvingen': 'gebreken', **{key: 'terugroepstatus' for key in jobs if key.startswith('terugroep')}}
     for key, parent in parents.items():
         if sections.get(parent) is None:
             sections[key] = None
+            reasons[key] = 'De bron met de benodigde referentiecodes kon niet worden opgehaald.'
             jobs.pop(key, None)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        pending = {pool.submit(fetch_related, key, field, codes): key for key, (field, codes) in jobs.items()}
+    for key, (_, codes) in jobs.items():
+        if not codes:
+            reasons[key] = 'Geen bijbehorende referentiecode voor dit kenteken gevonden.'
+    for key in list(jobs):
+        if not jobs[key][1]:
+            sections[key] = []
+            jobs.pop(key)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        pending = {pool.submit(fetch_related, key, field, codes): (key, False) for key, (field, codes) in jobs.items()}
+        pending.update({pool.submit(fetch_approval, key, vehicle): (key, True) for key in TYPE_APPROVALS})
         for job in as_completed(pending):
-            key = pending[job]
+            key, approval = pending[job]
             try:
-                sections[key] = job.result()
+                value = job.result()
+                if approval:
+                    sections[key], reason = value
+                    if reason:
+                        reasons[key] = reason
+                else:
+                    sections[key] = value
             except LookupError as exc:
                 sections[key] = None
+                reasons[key] = str(exc)
                 warnings.append(str(exc))
     descriptions = sections.get('gebrekbeschrijvingen')
     for defect in sections.get('gebreken') or []:
@@ -115,21 +220,80 @@ def enrich(sections, warnings):
                     defect[field] = match[field]
     return sections
 
+def source_statuses(sections, reasons):
+    return {key: {'status': 'error' if rows is None else 'available' if rows else 'unavailable',
+                  'row_count': len(rows) if rows is not None else 0,
+                  'field_count': len({field for row in rows or [] for field in row}),
+                  'reason': reasons.get(key) or ('Er zijn gegevens gevonden.' if rows else 'Geen gegevens voor deze koppeling gevonden.' if rows is not None else 'Ophalen mislukt.')}
+            for key, rows in sections.items()}
+
+def remember(result):
+    plate = result['plate']
+    payload = json.dumps({'sections': result['sections'], 'sources': result['sources']}, sort_keys=True, ensure_ascii=False)
+    canonical = {key: sorted((json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows)) if rows is not None else None for key, rows in result['sections'].items()}
+    digest = hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()
+    with database() as db:
+        if db.execute('SELECT 1 FROM observations WHERE plate=? AND observed=? AND hash=?', (plate, result['fetched_at'], digest)).fetchone():
+            return
+        previous = db.execute('SELECT id, hash FROM observations WHERE plate=? ORDER BY observed DESC, id DESC LIMIT 1', (plate,)).fetchone()
+        if previous and previous[1] == digest:
+            db.execute('UPDATE observations SET last_seen=? WHERE id=?', (result['fetched_at'], previous[0]))
+        else:
+            db.execute('INSERT INTO observations (plate, observed, last_seen, hash, payload) VALUES (?,?,?,?,?)',
+                       (plate, result['fetched_at'], result['fetched_at'], digest, payload))
+
+def changes_between(before, after):
+    changes = []
+    for key, rows in after.items():
+        # Do not misreport source outages or newly enabled datasets as vehicle changes.
+        old = before.get(key)
+        if old is None or rows is None:
+            continue
+        if sorted(json.dumps(row, sort_keys=True) for row in old) != sorted(json.dumps(row, sort_keys=True) for row in rows):
+            changes.append({'source': key, 'before': old, 'after': rows})
+    return changes
+
+def history(plate, full=False):
+    plate = normalize(plate)
+    with database() as db:
+        records = db.execute('SELECT id, observed, last_seen, payload FROM observations WHERE plate=? ORDER BY observed, id', (plate,)).fetchall()
+    events, previous = [], {}
+    for ident, observed, last_seen, raw in records:
+        payload = json.loads(raw)
+        event = {'id': ident, 'observed_at': observed, 'last_seen_at': last_seen, 'changes': changes_between(previous, payload['sections']) if events else [],
+                 'kind': 'change' if events else 'first_observation'}
+        if full:
+            event['data'] = payload
+        events.append(event)
+        previous.update({key: rows for key, rows in payload['sections'].items() if rows is not None})
+    return {'plate': plate, 'observations': events, 'note': 'Eigen waarnemingen sinds het opzoeken in deze app; geen gereconstrueerde historie van vóór die tijd.'}
+
 def lookup(plate, refresh=False):
     plate = normalize(plate)
     with database() as db:
         cached = db.execute('SELECT fetched, payload FROM cache WHERE plate=?', (plate,)).fetchone()
-    if cached and not refresh and time.time() - cached[0] < CACHE_SECONDS and json.loads(cached[1]).get('schema_version') == SCHEMA_VERSION:
+    if cached and not refresh and time.time() - cached[0] < CACHE_SECONDS and json.loads(cached[1]).get('schema_version') == SCHEMA_VERSION and json.loads(cached[1]).get('external_enabled', False) == bool(os.environ.get('KENTEKEN_API_KEY')):
         result = json.loads(cached[1])
         result['cached'] = True
+        result['history'] = history(plate)
         return result
-    # A missing vehicle must not be confused with an unavailable data source.
-    vehicle = fetch_dataset('voertuig', plate)
-    if not vehicle:
-        raise LookupError('Dit kenteken is niet gevonden in de openbare RDW-registratie.', 404)
-    sections = {'voertuig': vehicle}
+    # Keep independent datasets and saved history usable even without a current base record.
     warnings = []
-    with ThreadPoolExecutor(max_workers=9) as pool:
+    reasons = {}
+    try:
+        vehicle = fetch_dataset('voertuig', plate)
+        if not vehicle:
+            reasons['voertuig'] = 'Geen voertuig in de actuele openbare basisregistratie gevonden.'
+    except LookupError as exc:
+        vehicle = None
+        warnings.append(str(exc))
+        reasons['voertuig'] = str(exc)
+    if cached:
+        old = json.loads(cached[1])
+        if old.get('sections') and old.get('sources'):
+            remember(old)
+    sections = {'voertuig': vehicle}
+    with ThreadPoolExecutor(max_workers=14) as pool:
         jobs = {pool.submit(fetch_dataset, key, plate): key for key in DATASETS if key != 'voertuig'}
         for job in as_completed(jobs):
             key = jobs[job]
@@ -138,14 +302,31 @@ def lookup(plate, refresh=False):
             except LookupError as exc:
                 sections[key] = None
                 warnings.append(str(exc))
-    enrich(sections, warnings)
-    result = {'schema_version': SCHEMA_VERSION, 'plate': plate, 'sections': sections, 'warnings': warnings, 'fetched_at': time.time(), 'cached': False,
-              'sources': {key: {'label': label, 'url': f'https://opendata.rdw.nl/d/{dataset}'} for key, (dataset, label) in {**DATASETS, **RELATED}.items()}}
+    enrich(sections, warnings, reasons)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        pending = {pool.submit(fetch_external, key, plate): key for key in EXTERNALS}
+        for job in as_completed(pending):
+            key = pending[job]
+            try:
+                sections[key], reason = job.result()
+                if reason:
+                    reasons[key] = reason
+            except LookupError as exc:
+                sections[key] = None
+                reasons[key] = str(exc)
+                warnings.append(str(exc))
+    for key, (_, reason, _) in UNAVAILABLE_HISTORY.items():
+        sections[key] = []
+        reasons[key] = reason
+    result = {'external_enabled': bool(os.environ.get('KENTEKEN_API_KEY')), 'schema_version': SCHEMA_VERSION, 'plate': plate, 'sections': sections, 'warnings': warnings, 'fetched_at': time.time(), 'cached': False,
+              'sources': source_metadata(), 'source_status': source_statuses(sections, reasons)}
+    remember(result)
     # Incomplete responses are not cached, so retry can recover missing sections.
     if not warnings:
         with database() as db:
             db.execute('INSERT OR REPLACE INTO cache VALUES (?, ?, ?)', (plate, result['fetched_at'], json.dumps(result)))
             db.execute('DELETE FROM cache WHERE fetched < ?', (time.time() - 7 * 86400,))
+    result['history'] = history(plate)
     return result
 
 def application(environ, start_response):
@@ -159,7 +340,10 @@ def application(environ, start_response):
         if method not in ('GET', 'HEAD'):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.2.0"}'
+            body = b'{"status":"ok","version":"0.3.0"}'
+        elif path.startswith('/api/history/'):
+            body = json.dumps(history(path.removeprefix('/api/history/'), full=True), ensure_ascii=False).encode()
+            headers.append(('Cache-Control', 'no-store'))
         elif path.startswith('/api/vehicle/'):
             query = parse_qs(environ.get('QUERY_STRING', ''))
             result = lookup(path.removeprefix('/api/vehicle/'), query.get('refresh') == ['1'])

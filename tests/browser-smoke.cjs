@@ -7,8 +7,8 @@ const {chromium} = require('playwright');
 const port = 8081;
 const server = spawn(process.env.PYTHON || 'python', ['-c', `from wsgiref.simple_server import make_server; import app; make_server('127.0.0.1',${port},app.application).serve_forever()`], {cwd:path.join(__dirname,'..'),stdio:'ignore'});
 const sources = Object.fromEntries(['voertuig','brandstof','assen','carrosserie','carrosserie_specifiek','voertuigklasse','keuringen','gebreken','objecten','terugroepstatus','gebrekbeschrijvingen','terugroepdetails'].map(key=>[key,{label:key,url:'https://opendata.rdw.nl'}]));
-function fixture(plate) {return {plate,schema_version:2,fetched_at:Date.now()/1000,cached:false,warnings:[],sources,sections:{
-  voertuig:[{kenteken:plate,merk:'VOLKSWAGEN',handelsbenaming:'GOLF GTE',inrichting:'hatchback',eerste_kleur:'BLAUW',datum_eerste_toelating:'20210611',datum_eerste_tenaamstelling_in_nederland:'20220611',vervaldatum_apk:'20270611',massa_rijklaar:'1624',maximum_trekken_massa_geremd:'1500',tellerstandoordeel:'Logisch',wam_verzekerd:'Ja',openstaande_terugroepactie_indicator:'Ja',aantal_zitplaatsen:'5',cilinderinhoud:'1395',catalogusprijs:'43000'}],
+function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/1000,cached:false,warnings:[],sources,sections:{
+  voertuig:[{kenteken:plate,merk:'VOLKSWAGEN',handelsbenaming:'GOLF GTE',inrichting:'hatchback',eerste_kleur:'BLAUW',datum_eerste_toelating:'20210611',datum_eerste_tenaamstelling_in_nederland:'20220611',vervaldatum_apk:'20270611',massa_rijklaar:'1624',maximum_trekken_massa_geremd:'1500',tellerstandoordeel:'Logisch',wam_verzekerd:'Ja',openstaande_terugroepactie_indicator:'Ja',aantal_zitplaatsen:'5',cilinderinhoud:'1395',catalogusprijs:'43000',datum_eerste_toelating_dt:'2021-06-11T12:34:56.000',api_gekentekende_voertuigen_brandstof:'https://opendata.rdw.nl/resource/8ys7-d773.json',lege_waarde:'',null_waarde:null}],
   brandstof:[{brandstof_omschrijving:'Benzine',nettomaximumvermogen:'110',brandstofverbruik_gecombineerd_wltp:'5.5'},{brandstof_omschrijving:'Elektriciteit',nettomaximumvermogen:'80',actie_radius_extern_opladen_wltp:'62'}],
   assen:[{as_nummer:'1',spoorbreedte:'153'}],carrosserie:[],carrosserie_specifiek:[],voertuigklasse:[],objecten:[],
   keuringen:[{meld_datum_door_keuringsinstantie:'20250611',soort_erkenning_omschrijving:'APK Lichte voertuigen',soort_melding_ki_omschrijving:'periodieke controle'}],
@@ -40,6 +40,9 @@ function fixture(plate) {return {plate,schema_version:2,fetched_at:Date.now()/10
   await page.click('#tab-recalls');await page.locator('.record summary').click();assert(await page.getByText('Vervang het onderdeel',{exact:true}).isVisible());
   await page.fill('#field-query','airbag');assert((await page.locator('#details').textContent()).includes('Waarschuwingsinrichting'));
   await page.fill('#field-query','zzzznotfound');assert((await page.locator('#details').textContent()).includes('Geen gegevens gevonden'));
+  await page.click('#tab-alle');assert((await page.locator('#details').textContent()).includes('2021-06-11T12:34:56.000'));assert((await page.locator('#details').textContent()).includes('https://opendata.rdw.nl/resource/8ys7-d773.json'));assert((await page.locator('#details').textContent()).includes('(lege waarde)'));assert((await page.locator('#details').textContent()).includes('null'));
+  await page.click('#tab-bronnen');assert((await page.locator('#details').textContent()).includes('Niet beschikbaar'));
+  await page.click('#tab-historie');assert((await page.locator('#details').textContent()).includes('Gebrek geconstateerd'));
   await page.click('#tab-overzicht');await page.click('#compare');
   const screenshots=process.env.KC_SCREENSHOTS;
   if(screenshots){fs.mkdirSync(screenshots,{recursive:true});await page.screenshot({path:path.join(screenshots,'desktop.png'),fullPage:true});}
@@ -51,7 +54,7 @@ function fixture(plate) {return {plate,schema_version:2,fetched_at:Date.now()/10
   assert((await page.locator('#comparison-content').textContent()).includes('CD456E'));
   await page.reload();await page.locator('#garage summary').click();assert((await page.locator('#favorites').textContent()).includes('AB123C'));
   await page.locator('#favorites button').first().click();await page.waitForSelector('#result:not([hidden])');
-  for(const width of [390,320]){await page.setViewportSize({width,height:844});for(const [key]of [['overzicht'],['techniek'],['energie'],['keuringen'],['recalls'],['extra'],['alle']]){await page.click('#tab-'+key);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`Overflow at ${width} in ${key}`);}}
+  for(const width of [390,320]){await page.setViewportSize({width,height:844});for(const [key]of [['overzicht'],['techniek'],['energie'],['keuringen'],['recalls'],['extra'],['historie'],['bronnen'],['alle']]){await page.click('#tab-'+key);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`Overflow at ${width} in ${key}`);}}
   await page.click('#tab-overzicht');await page.setViewportSize({width:390,height:844});if(screenshots)await page.screenshot({path:path.join(screenshots,'mobile.png'),fullPage:true});
   await page.locator('.export-menu summary').click();const download=page.waitForEvent('download');await page.click('#export');assert.equal((await download).suggestedFilename(),'kenteken-AB123C.json');
   await page.fill('#plate','XXXXXX');await page.click('#submit');await page.waitForSelector('#message.error');assert.equal(await page.locator('#result').isVisible(),false);

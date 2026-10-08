@@ -49,7 +49,7 @@ const GROUPS = {
   'Gewichten & trekvermogen':['massa_ledig_voertuig','massa_rijklaar','toegestane_maximum_massa_voertuig','technische_max_massa_voertuig','maximum_massa_trekken_ongeremd','maximum_trekken_massa_geremd','maximum_massa_samenstelling'],
   'Afmetingen & indeling':['lengte','breedte','hoogte_voertuig','wielbasis','aantal_deuren','aantal_wielen','aantal_zitplaatsen','aantal_rolstoelplaatsen']
 };
-const TABS = [['overzicht','Overzicht'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['alle','Alle gegevens']];
+const TABS = [['overzicht','Overzicht'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
 let current = null, activeTab = 'overzicht', requestId = 0, comparisons = [];
 function readList(key) {
   try {const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&/^[A-Z0-9]{6}$/.test(x)).slice(0,30):[];} catch {return [];}
@@ -68,7 +68,7 @@ function dateValue(value) {
 }
 function format(key, value) {
   if (!present(value)) return '—';
-  const v=String(value);
+  const v=typeof value==='object'?JSON.stringify(value,null,2):String(value);
   if (key==='meld_tijd_door_keuringsinstantie') {const t=v.padStart(4,'0');return t.slice(0,2)+':'+t.slice(2);}
   if (key.endsWith('_dt') || /datum/.test(key)) {
     const d=dateValue(v);
@@ -81,7 +81,7 @@ function format(key, value) {
   return v;
 }
 function fields(row) {
-  return Object.keys(row).filter(key=>key!=='kenteken'&&!key.startsWith('api_')&&!(key.endsWith('_dt')&&present(row[key.slice(0,-3)]))&&present(row[key]));
+  return Object.keys(row);
 }
 function rowList(row, keys) {
   const dl=element('dl');
@@ -117,7 +117,7 @@ function garage() {
   }
 }
 function favoriteButton(){if(current){const saved=favorites.includes(current.plate);$('favorite').textContent=saved?'★ Bewaard':'☆ Bewaren';$('favorite').setAttribute('aria-pressed',String(saved));}}
-function vehicle(){return current.sections.voertuig[0];}
+function vehicle(){return current.sections.voertuig?.[0]||{};}
 function fuelText(){return current.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';}
 function importText(v){const a=dateValue(v.datum_eerste_toelating),b=dateValue(v.datum_eerste_tenaamstelling_in_nederland);return a&&b?(b>a?'Ja':'Nee'):'—';}
 function apkDays(v){const d=dateValue(v.vervaldatum_apk);if(!d||Number.isNaN(d.getTime()))return null;const today=new Date();today.setHours(0,0,0,0);return Math.round((d-today)/86400000);}
@@ -170,19 +170,73 @@ function energyView(){
   for(const row of rows)grid.append(dataPanel(row.brandstof_omschrijving||'Brandstofregistratie',[row]));
   box.append(grid,element('p','Vermogen wordt per brandstofregistratie getoond. Bij hybride voertuigen is dit geen opgeteld systeemvermogen. WLTP-waarden zijn testwaarden, geen gemeten praktijkverbruik.','notice'));return box;
 }
+function sourceState(key) {
+  const rows=current.sections[key];
+  return current.source_status?.[key] || {status:rows===null?'error':rows?.length?'available':'unavailable',row_count:rows?.length||0,reason:rows===null?'Ophalen mislukt.':rows?.length?'Gegevens gevonden.':'Geen gegevens voor dit kenteken gevonden.'};
+}
+function statusPill(key) {
+  const state=sourceState(key),n=element('span',state.status==='available'?'Beschikbaar':state.status==='error'?'Ophalen mislukt':'Niet beschikbaar','status-pill '+(state.status==='available'?'good':state.status==='error'?'warn':''));
+  return n;
+}
+function rawValue(value) {
+  if(value===null)return 'null';
+  if(value===undefined)return 'Niet beschikbaar';
+  if(value==='')return '(lege waarde)';
+  return typeof value==='object'?JSON.stringify(value,null,2):String(value);
+}
+function rawPanel(key, query='') {
+  const source=current.sources[key],rows=current.sections[key],box=panel(source.label,rows?.length??0);
+  box.querySelector('.panel-head').append(statusPill(key));
+  if(!rows?.length){note(box,sourceState(key).reason);return box;}
+  for(const [index,row]of rows.entries()) {
+    const keys=Object.keys(row).filter(k=>!query||(k+' '+(source.fields?.[k]||label(k))+' '+rawValue(row[k])+' '+source.label).toLowerCase().includes(query));
+    if(!keys.length)continue;
+    const record=element('details',undefined,'record raw-record');record.open=!!query||rows.length===1;
+    record.append(element('summary',`Record ${index+1} · ${keys.length} velden`));
+    const dl=element('dl');
+    for(const field of keys){const r=element('div',undefined,'row'),dt=element('dt',source.fields?.[field]||label(field));dt.append(element('code',field,'field-code'));const dd=element('dd',rawValue(row[field]));r.append(dt,dd);dl.append(r);}
+    record.append(dl);box.append(record);
+  }
+  return box;
+}
 function allView(query=''){
   const grid=element('div',undefined,'panel-grid');let matches=0;
   for(const [key,source]of Object.entries(current.sources)){
     const rows=current.sections[key];
-    if(query){
-      if(!rows?.length)continue;
-      const filtered=rows.map(row=>Object.fromEntries(fields(row).filter(k=>(label(k)+' '+format(k,row[k])+' '+source.label).toLowerCase().includes(query)).map(k=>[k,row[k]]))).filter(row=>Object.keys(row).length);
-      if(filtered.length){grid.append(dataPanel(source.label,filtered));matches+=filtered.reduce((n,r)=>n+Object.keys(r).length,0);}
-    }else if(rows===null||rows?.length)grid.append(dataPanel(source.label,rows));
+    if(query&&!rows?.some(row=>Object.keys(row).some(k=>(k+' '+(source.fields?.[k]||label(k))+' '+rawValue(row[k])+' '+source.label).toLowerCase().includes(query))))continue;
+    grid.append(rawPanel(key,query));matches++;
   }
   if(query&&!matches)grid.append(element('p','Geen gegevens gevonden die overeenkomen met je zoekopdracht.','empty'));
-  if(!query){const p=panel('Databronnen'),list=element('div',undefined,'source-list');for(const [key,source]of Object.entries(current.sources)){const a=element('a',source.label);a.href=source.url;a.target='_blank';a.rel='noopener';a.append(element('span',current.sections[key]===null?'Niet opgehaald':`${current.sections[key]?.length||0} regels`,'source-status'));list.append(a);}p.append(list);grid.append(p);}return grid;
+  return grid;
 }
+function sourceView(){
+  const box=element('div');box.append(element('p','Beschikbaar betekent dat deze bron gegevens heeft geleverd. Niet beschikbaar betekent geen resultaat of geen bruikbare koppeling/toegang. Een storing wordt apart gemeld.','notice'));
+  const groups=new Map();
+  for(const [key,source]of Object.entries(current.sources)){const title=source.scope==='typegoedkeuring'?'Typegoedkeuring · exacte koppeling':source.scope==='extern'?'Aanvullende externe bronnen':source.scope==='historie'?'Beschikbaarheid aanvullende historie':'RDW · voertuig en gerelateerde gegevens';if(!groups.has(title))groups.set(title,[]);groups.get(title).push([key,source]);}
+  for(const [title,entries]of groups){const p=panel(title,entries.length);for(const [key,source]of entries){const r=element('details',undefined,'record'),head=element('summary');head.append(element('span',source.label),statusPill(key));r.append(head);const body=element('div',undefined,'panel-body');body.append(element('p',sourceState(key).reason,'empty'));body.append(rowList({records:sourceState(key).row_count,velden_in_catalogus:Object.keys(source.fields||{}).length,aanbieder:source.provider||'RDW'}));
+    if(source.url){const a=element('a','Broninformatie');a.href=source.url;a.target='_blank';a.rel='noopener';body.append(a);}
+    if(Object.keys(source.fields||{}).length){const fields=element('details'),sm=element('summary','Alle velden in deze dataset');fields.append(sm);const loaded=new Set((current.sections[key]||[]).flatMap(row=>Object.keys(row)));for(const [field,name]of Object.entries(source.fields)){fields.append(element('div',(name||field)+' · '+((current.sections[key]||[]).some(row=>present(row[field]))?'Beschikbaar':loaded.has(field)?'Leeg geleverd':'Niet beschikbaar voor dit kenteken'),'field-availability'));}body.append(fields);}
+    r.append(body);p.append(r);}box.append(p);}return box;
+}
+function historyView(){
+  const box=element('div'),events=[],v=vehicle();
+  const add=(date,title,detail,source)=>{const d=dateValue(date);if(d&&!Number.isNaN(d.getTime()))events.push({time:d.getTime(),date:format('datum',date),title,detail,source});};
+  for(const [key,title]of [['datum_eerste_toelating','Eerste toelating'],['datum_eerste_tenaamstelling_in_nederland','Eerste registratie Nederland'],['datum_tenaamstelling','Laatste tenaamstelling']])add(v[key],title,'Geregistreerde datum; geen volledige reeks eigenaarwisselingen.','Voertuigregistratie');
+  for(const r of current.sections.keuringen||[])add(r.meld_datum_door_keuringsinstantie,'Keuringsmelding',r.soort_melding_ki_omschrijving||r.soort_erkenning_omschrijving||'','Keuringsmeldingen');
+  for(const r of current.sections.gebreken||[])add(r.meld_datum_door_keuringsinstantie,'Gebrek geconstateerd',r.gebrek_omschrijving||r.gebrek_identificatie,'Geconstateerde gebreken');
+  for(const r of current.sections.objecten||[]){add(r.montagedatum,'Object ingebouwd',r.soort_toe_te_voegen_object_omschrijving||'','Ingebouwde objecten');add(r.demontagedatum,'Object verwijderd',r.soort_toe_te_voegen_object_omschrijving||'','Ingebouwde objecten');}
+  for(const r of current.sections.terugroepdetails||[])add(r.publicatiedatum_rdw,'Terugroepactie gepubliceerd',(r.referentiecode_rdw||'')+' · '+(r.omschrijving_defect||''),'Terugroepacties');
+  events.sort((a,b)=>b.time-a.time);
+  const p=panel('Beschikbare historische gebeurtenissen',events.length);
+  if(!events.length)note(p,'Geen gedateerde gebeurtenissen gevonden.');
+  for(const event of events){const r=element('div',undefined,'timeline-event');r.append(element('span',event.date,'timeline-date'),element('strong',event.title),element('p',event.detail),element('small',event.source));p.append(r);}box.append(p);
+  const observations=current.history?.observations||[],o=panel('Eigen waarnemingen & wijzigingen',observations.length);note(o,'Deze historie ontstaat vanaf het opzoeken in deze app. Een waarnemingsdatum is geen bewezen datum van een voertuigwijziging. Storingen worden niet als voertuigwijzigingen weergegeven.');
+  if(!observations.length)note(o,'Nog geen opgeslagen waarnemingen.');
+  for(const r of [...observations].reverse()){const record=element('details',undefined,'record'),head=element('summary');head.append(element('span',new Date(r.observed_at*1000).toLocaleString('nl-NL')),element('span',r.kind==='first_observation'?'Eerste waarneming':r.changes.length?`${r.changes.length} gewijzigde datasets`:'Aanvullende broninformatie','record-meta'));record.append(head);
+    for(const change of r.changes){const detail=element('details',undefined,'change-detail');detail.append(element('summary',current.sources[change.source]?.label||change.source),element('pre',JSON.stringify({voor:change.before,na:change.after},null,2)));record.append(detail);}o.append(record);}box.append(o);
+  const unavailable=panel('Andere historische gegevens');for(const [key,source]of Object.entries(current.sources).filter(([,s])=>s.scope==='historie')){const r=element('div',undefined,'record');r.append(element('strong',source.label),element('p',sourceState(key).reason,'empty'));unavailable.append(r);}box.append(unavailable);return box;
+}
+
 function renderDetails(){
   if(!current)return;
   const query=$('field-query').value.trim().toLowerCase(),out=$('details');out.replaceChildren();
@@ -192,17 +246,20 @@ function renderDetails(){
   else if(activeTab==='keuringen')out.append(inspectionView());
   else if(activeTab==='recalls')out.append(recallView());
   else if(activeTab==='alle')out.append(allView());
-  else {const grid=element('div',undefined,'panel-grid');if(activeTab==='techniek'){grid.append(dataPanel('Motor & uitvoering',[vehicle()],GROUPS['Motor & uitvoering']),dataPanel('Assen',current.sections.assen),dataPanel('Carrosserie',current.sections.carrosserie),dataPanel('Specifieke carrosserie',current.sections.carrosserie_specifiek));}else{grid.append(dataPanel('Ingebouwde objecten',current.sections.objecten),dataPanel('Voertuigklasse',current.sections.voertuigklasse));}out.append(grid);}
+  else if(activeTab==='bronnen')out.append(sourceView());
+  else if(activeTab==='historie')out.append(historyView());
+  else if(activeTab==='typegoedkeuring'){const grid=element('div',undefined,'panel-grid');out.append(element('p','Typegoedkeuringsgegevens zijn gekoppeld op exact goedkeuringsnummer en waar mogelijk variant en uitvoering. Revisies en grenswaarden horen bij de goedkeuring, niet bij een onderhouds- of wijzigingshistorie van deze auto.','notice'));for(const [key,source]of Object.entries(current.sources).filter(([,s])=>s.scope==='typegoedkeuring'))grid.append(rawPanel(key));out.append(grid);}
+  else {const grid=element('div',undefined,'panel-grid');if(activeTab==='techniek'){grid.append(dataPanel('Motor & uitvoering',[vehicle()],GROUPS['Motor & uitvoering']),dataPanel('Assen',current.sections.assen),dataPanel('Carrosserie',current.sections.carrosserie),dataPanel('Specifieke carrosserie',current.sections.carrosserie_specifiek));}else{grid.append(dataPanel('Ingebouwde objecten',current.sections.objecten),dataPanel('Voertuigklasse',current.sections.voertuigklasse));for(const key of ['subcategorie','bijzonderheden','rupsbanden','keuringsvervaldata','telleruitleg'])if(current.sources[key])grid.append(dataPanel(current.sources[key].label,current.sections[key]));}out.append(grid);}
   for(const b of $('tabs').children){b.classList.toggle('active',!query&&b.dataset.key===activeTab);b.setAttribute('aria-selected',String(!query&&b.dataset.key===activeTab));}
 }
 function render(){
   const v=vehicle(),days=apkDays(v);$('welcome').hidden=true;$('result').hidden=false;$('result-plate').textContent=current.plate;
-  $('vehicle-title').textContent=[v.merk,v.handelsbenaming].filter(Boolean).join(' ');
+  $('vehicle-title').textContent=[v.merk,v.handelsbenaming].filter(Boolean).join(' ')||'Geen actuele voertuigregistratie beschikbaar';
   $('vehicle-subtitle').textContent=[v.inrichting,v.eerste_kleur,v.datum_eerste_toelating?.slice(0,4)].filter(Boolean).join(' · ');
   $('timestamp').textContent='Opgehaald '+new Date(current.fetched_at*1000).toLocaleString('nl-NL')+(current.cached?' · cache':' · bijgewerkt');
-  const loaded=Object.values(current.sections).filter(x=>x!==null).length,total=Object.keys(current.sources).length;
-  $('coverage').textContent=`${loaded}/${total} bronnen verwerkt · ${Object.values(current.sections).reduce((n,rows)=>n+(rows?.length||0),0)} gegevensregels`;
-  const alerts=$('alerts');alerts.replaceChildren();for(const warning of current.warnings)alerts.append(element('p',warning,'warning'));
+  const states=Object.keys(current.sources).map(sourceState),available=states.filter(x=>x.status==='available').length,unavailable=states.filter(x=>x.status==='unavailable').length,errors=states.filter(x=>x.status==='error').length;
+  $('coverage').textContent=`${available} beschikbaar · ${unavailable} niet beschikbaar · ${errors} mislukt`;
+  const alerts=$('alerts');alerts.replaceChildren();if(!current.sections.voertuig?.length)alerts.append(element('p','De actuele basisregistratie is niet beschikbaar. Andere bronnen en opgeslagen historie blijven hieronder zichtbaar.','notice'));for(const warning of current.warnings)alerts.append(element('p',warning,'warning'));
   if(v.openstaande_terugroepactie_indicator==='Ja')alerts.append(element('p','Openstaande terugroepactie gemeld. Bekijk het tabblad Terugroepacties.','warning'));
   if(v.tellerstandoordeel==='Onlogisch')alerts.append(element('p','Het RDW-tellerstandoordeel is onlogisch.','warning'));
   if(days!==null&&days<0)alerts.append(element('p','De geregistreerde APK-vervaldatum is verstreken.','warning'));
@@ -219,7 +276,7 @@ async function search(plate,refresh=false){
   }catch(e){if(id===requestId){message(e.message||'Geen verbinding met de app.','error');$('welcome').hidden=false;}}
   finally{if(id===requestId){$('submit').disabled=false;$('refresh').disabled=false;}}
 }
-function compareValue(data,key){const v=data.sections.voertuig[0];if(key==='brandstof')return data.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';if(key==='import')return importText(v);return format(key,v[key]);}
+function compareValue(data,key){const v=data.sections.voertuig?.[0]||{};if(key==='brandstof')return data.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';if(key==='import')return importText(v);return format(key,v[key]);}
 function renderComparison(){
   $('comparison').hidden=false;$('comparison-hint').hidden=comparisons.length===2;const wrap=$('comparison-content');wrap.replaceChildren();
   const t=element('table'),head=element('tr');head.append(element('th','Gegeven'));comparisons.forEach(x=>head.append(element('th',x.plate)));t.append(head);
@@ -233,5 +290,6 @@ $('favorite').addEventListener('click',()=>{if(!current)return;const p=current.p
 $('export').addEventListener('click',()=>{if(!current)return;const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`kenteken-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 $('print').addEventListener('click',()=>{if(!current)return;const previous=activeTab,query=$('field-query').value;activeTab='overzicht';$('field-query').value='';renderDetails();window.print();activeTab=previous;$('field-query').value=query;renderDetails();});
 $('compare').addEventListener('click',()=>{if(!current)return;comparisons=[...comparisons.filter(x=>x.plate!==current.plate),current].slice(-2);renderComparison();$('comparison').scrollIntoView({behavior:'smooth'});});
+$('history-export').addEventListener('click',async()=>{if(!current)return;try{const response=await fetch('/api/history/'+current.plate);if(!response.ok)throw new Error('Historie kon niet worden opgehaald.');const data=await response.json(),url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`historie-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){message(e.message,'error');}});
 $('close-comparison').addEventListener('click',()=>{$('comparison').hidden=true;comparisons=[];});
 garage();

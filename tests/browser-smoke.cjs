@@ -3,9 +3,11 @@ const assert = require('node:assert/strict');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
+const testData=fs.mkdtempSync(path.join(os.tmpdir(),'kenteken-browser-'));
 const {chromium} = require('playwright');
 const port = 8081;
-const server = spawn(process.env.PYTHON || 'python', ['-c', `from wsgiref.simple_server import make_server; import app; make_server('127.0.0.1',${port},app.application).serve_forever()`], {cwd:path.join(__dirname,'..'),stdio:'ignore'});
+const server = spawn(process.env.PYTHON || 'python', ['-c', `from wsgiref.simple_server import make_server; import app; make_server('127.0.0.1',${port},app.application).serve_forever()`], {cwd:path.join(__dirname,'..'),stdio:'ignore',env:{...process.env,DATA_DIR:testData}});
 const sources = Object.fromEntries(['voertuig','brandstof','assen','carrosserie','carrosserie_specifiek','voertuigklasse','keuringen','gebreken','objecten','terugroepstatus','gebrekbeschrijvingen','terugroepdetails'].map(key=>[key,{label:key,url:'https://opendata.rdw.nl'}]));
 const selections=new Map();
 const photoId='a'.repeat(64);
@@ -92,12 +94,12 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
   await page.click('#tab-overzicht');await page.setViewportSize({width:390,height:844});if(screenshots)await page.screenshot({path:path.join(screenshots,'mobile.png'),fullPage:true});
   await page.click('#tab-rapporten');await page.locator('select[aria-label="Green NCAP rapportkandidaten"] option').nth(1).waitFor({state:'attached'});await page.selectOption('select[aria-label="Green NCAP rapportkandidaten"]','https://www.greenncap.com/assessments/vw-golf-2021-0081/');
   const greenForm=page.locator('form').filter({has:page.locator('input[aria-label="Green NCAP rapportlink"]')});await greenForm.locator('input[type=checkbox]').check();await greenForm.getByRole('button',{name:'Rapport koppelen',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#tab-rapporten')?.getAttribute('aria-selected')==='true'&&document.querySelector('#details').textContent.includes('VW Golf GTE test'));
-  await page.setInputFiles('input[aria-label="Eigen PDF-rapport"]',{name:'browser-report.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7 browser fixture')});await page.getByRole('button',{name:'PDF bewaren',exact:true}).click();await page.getByRole('link',{name:'browser-report.pdf',exact:true}).waitFor();assert((await page.locator('#details').textContent()).includes('PDF lokaal bewaard'));
+  await page.setInputFiles('input[aria-label="Eigen PDF-rapport"]',{name:'browser-report.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7 browser fixture')});const uploadResponse=page.waitForResponse(response=>response.url().endsWith('/api/reports/AB123C')&&response.request().method()==='POST');await page.getByRole('button',{name:'PDF bewaren',exact:true}).click();const uploaded=await uploadResponse;assert.equal(uploaded.status(),200,await uploaded.text());await page.getByRole('link',{name:'browser-report.pdf',exact:true}).waitFor();assert((await page.locator('#details').textContent()).includes('PDF lokaal bewaard'));
   const pdfDownload=page.waitForEvent('download');await page.getByRole('link',{name:'browser-report.pdf',exact:true}).click();await pdfDownload;
   await page.getByRole('button',{name:'PDF verwijderen',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#details').textContent.includes('Nog geen eigen rapporten bewaard'));
   await page.click('#tab-overzicht');
   await page.locator('.export-menu summary').click();const download=page.waitForEvent('download');await page.click('#export');assert.equal((await download).suggestedFilename(),'kenteken-AB123C.json');
   await page.fill('#plate','XXXXXX');await page.click('#submit');await page.waitForSelector('#message.error');assert.equal(await page.locator('#result').isVisible(),false);
   assert.deepEqual(errors,[]);console.log('Browser checks passed: European model selection, EEA opt-in and record pagination, tabs, data search, two fuels, recall details, empty/error states, favorites persistence, comparison, export, 320px/390px layout.');
- }finally{if(browser)await browser.close();server.kill();}
+ }finally{if(browser)await browser.close();server.kill();fs.rmSync(testData,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

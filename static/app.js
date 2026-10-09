@@ -7,6 +7,7 @@ function element(tag, text, cls) {
   return n;
 }
 const LABELS = {
+  testedModel:'Geteste uitvoering',ratingYear:'Testjaar',nicePublicationDate:'Publicatie',starRating:'Veiligheidssterren',adultOccupant_percent:'Volwassen inzittenden (%)',childOccupant_percent:'Kinderen (%)',vulnerableRoadUsers_percent:'Kwetsbare weggebruikers (%)',safetyAssist_percent:'Veiligheidsassistentie (%)',
   vervaldatum_apk:'APK geldig tot', datum_eerste_toelating:'Eerste toelating', datum_eerste_tenaamstelling_in_nederland:'Eerste registratie Nederland', datum_tenaamstelling:'Laatste tenaamstelling',
   wam_verzekerd:'WAM-verzekerd', openstaande_terugroepactie_indicator:'Openstaande terugroepactie', export_indicator:'Export geregistreerd', taxi_indicator:'Taxi geregistreerd',
   tellerstandoordeel:'Tellerstandoordeel', jaar_laatste_registratie_tellerstand:'Laatste jaar tellerregistratie', code_toelichting_tellerstandoordeel:'Toelichtingscode tellerstandoordeel',
@@ -49,7 +50,7 @@ const GROUPS = {
   'Gewichten & trekvermogen':['massa_ledig_voertuig','massa_rijklaar','toegestane_maximum_massa_voertuig','technische_max_massa_voertuig','maximum_massa_trekken_ongeremd','maximum_trekken_massa_geremd','maximum_massa_samenstelling'],
   'Afmetingen & indeling':['lengte','breedte','hoogte_voertuig','wielbasis','aantal_deuren','aantal_wielen','aantal_zitplaatsen','aantal_rolstoelplaatsen']
 };
-const TABS = [['overzicht','Overzicht'],['fotos','Foto’s'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
+const TABS = [['overzicht','Overzicht'],['fotos','Foto’s'],['rapporten','Rapporten'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
 let current = null, activeTab = 'overzicht', requestId = 0, comparisons = [];
 function readList(key) {
   try {const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&/^[A-Z0-9]{6}$/.test(x)).slice(0,30):[];} catch {return [];}
@@ -241,7 +242,7 @@ function supplementalView(){
   const box=element('div'),p=panel('Europese modelinformatie'),form=element('form',undefined,'source-form'),label=element('label','Model en generatie'),select=element('select'),status=element('p','Modellen ophalen…','empty');select.id='eu-model';select.disabled=true;
   const empty=element('option','Kies een passende Europese generatie');empty.value='';select.append(empty);label.append(select);form.append(label);
   const apply=element('button','Modelgegevens ophalen');apply.type='submit';apply.disabled=true;form.append(apply);
-  const clear=element('button','Modelselectie verwijderen','secondary');clear.type='button';clear.addEventListener('click',()=>applySupplemental(current.selection?.eea_enabled?{eea_enabled:true}:{}));form.append(clear);
+  const clear=element('button','Modelselectie verwijderen','secondary');clear.type='button';clear.addEventListener('click',()=>{const next={...current.selection};delete next.model_slug;applySupplemental(next);});form.append(clear);
   form.addEventListener('submit',e=>{e.preventDefault();if(select.value)applySupplemental({...current.selection,model_slug:select.value});});p.append(form,status);note(p,'De lijst bevat Europese modellen van hetzelfde merk. Kies de juiste generatie zelf. Specificaties zijn indicatief en kunnen afwijken van jouw uitvoering. De Nederlandse terugroepbron wordt automatisch gekoppeld waar exacte referenties beschikbaar zijn.');box.append(p);
   const make=vehicle().merk,selection=current.selection||{};
   (async()=>{await Promise.resolve();if(!make){status.textContent='RDW-merk ontbreekt; geen betrouwbare modelselectie mogelijk.';return;}
@@ -256,6 +257,34 @@ function supplementalView(){
 async function applySupplemental(selection){
   const plate=current.plate;await search(plate,false,selection);if(current){activeTab='aanvullend';$('details').setAttribute('aria-labelledby','tab-aanvullend');renderDetails();}
 }
+
+const reportSources=[['eu_euroncap','Euro NCAP'],['eu_greenncap','Green NCAP'],['eu_adac','ADAC']];
+const reportMenus=new Map();
+function reportView(){
+ const box=element('div');box.append(element('p','Modelrapporten beschrijven een geteste uitvoering. Controleer generatie, motor en uitrusting voordat je een rapport koppelt. Eigen PDF’s blijven lokaal bewaard.','notice'));
+ const grid=element('div',undefined,'panel-grid');
+ for(const [key,title]of reportSources){
+  const p=panel(title),form=element('form',undefined,'source-form'),select=element('select'),input=element('input'),status=element('p','Kandidaten ophalen…','empty');select.setAttribute('aria-label',title+' rapportkandidaten');select.append(element('option','Kies een kandidaat of plak een directe link'));
+  select.firstChild.value='';input.type='url';input.placeholder='Directe modelrapportlink (https://…)';input.setAttribute('aria-label',title+' rapportlink');input.value=current.selection?.report_urls?.[key]||'';select.addEventListener('change',()=>{if(select.value)input.value=select.value;});
+  const confirm=element('input');confirm.type='checkbox';confirm.required=true;const label=element('label','Ik heb generatie, motor en uitrusting in het originele rapport gecontroleerd.');label.prepend(confirm);
+  const save=element('button','Rapport koppelen');save.type='submit';const clear=element('button','Verwijderen','secondary');clear.type='button';clear.addEventListener('click',async()=>{const next={...current.selection,report_urls:{...current.selection?.report_urls}};delete next.report_urls[key];await applyReports(next);});
+  form.append(select,input,label,save,clear);form.addEventListener('submit',async e=>{e.preventDefault();if(input.value&&confirm.checked)await applyReports({...current.selection,report_urls:{...current.selection?.report_urls,[key]:input.value}});});p.append(form,status);
+  (async()=>{await Promise.resolve();const v=vehicle(),cacheKey=[key,v.merk,v.handelsbenaming].join('|');if(!v.merk||!v.handelsbenaming){status.textContent='RDW-merk of model ontbreekt.';return;}
+   try{let data=reportMenus.get(cacheKey);if(!data){const response=await fetch('/api/report-options?'+new URLSearchParams({source:key,make:v.merk,model:v.handelsbenaming}));data=await response.json();if(!response.ok)throw new Error(data.error||'Kandidaten niet beschikbaar.');reportMenus.set(cacheKey,data);}if(!form.isConnected)return;for(const item of data){const option=element('option',item.title);option.value=item.url;select.append(option);}status.textContent=data.length?`${data.length} kandidaten uit de openbare index. Controleer zelf de exacte uitvoering.`:'Geen kandidaten in deze index. Je kunt een directe officiële modelrapportlink invoeren.';if(key==='eu_adac')status.textContent+=' ADAC-index: selectie van recente tests, geen volledige catalogus.';
+   }catch(e){if(form.isConnected)status.textContent=e.message+' Een directe officiële rapportlink blijft mogelijk.';}
+  })();
+  const records=current.sections[key]||[];
+  for(const report of records){const r=element('div',undefined,'record');r.append(element('strong',report.title),element('p',report.applicability,'empty'));if(report.test_summary&&Object.keys(report.test_summary).length)r.append(rowList(report.test_summary));const links=[{title:'Origineel modelrapport',url:report.url},...(report.pdf_reports||[])];for(const link of links){const a=element('a',link.title);a.href=link.url;a.target='_blank';a.rel='noopener noreferrer';r.append(a,element('br'));}p.append(r);}
+  p.append(element('p',sourceState(key).reason,'empty'));grid.append(p);
+ }
+ box.append(grid);
+ const local=panel('Eigen rapporten · PDF'),upload=element('form',undefined,'source-form'),file=element('input'),submit=element('button','PDF bewaren'),list=element('div'),message=element('p','Car-Pass, HistoVec, dealeruitdraai of een zelf verkregen historierapport. Maximaal 6 MB per PDF en 30 rapporten per kenteken.','empty');file.type='file';file.accept='.pdf,application/pdf';file.required=true;file.setAttribute('aria-label','Eigen PDF-rapport');submit.type='submit';upload.append(file,submit);local.append(upload,message,list);box.append(local);const plate=current.plate;
+ const renderLocal=rows=>{if(current?.plate!==plate||!list.isConnected)return;current.local_reports=rows;list.replaceChildren();if(!rows.length)list.append(element('p','Nog geen eigen rapporten bewaard.','empty'));for(const row of rows){const item=element('div',undefined,'record'),a=element('a',row.name);a.href=row.url;a.download=row.name;const remove=element('button','PDF verwijderen','secondary');remove.type='button';remove.addEventListener('click',async()=>{remove.disabled=true;try{const response=await fetch('/api/reports/'+plate+'/'+row.id,{method:'DELETE'}),data=await response.json();if(!response.ok)throw new Error(data.error);renderLocal(data);}catch(e){message.textContent=e.message;remove.disabled=false;}});item.append(a,element('p',new Date(row.uploaded_at*1000).toLocaleString('nl-NL')+' · '+Math.ceil(row.size/1024)+' KB · Door jou toegevoegd','empty'),remove);list.append(item);}};
+ (async()=>{await Promise.resolve();try{const response=await fetch('/api/reports/'+plate),rows=await response.json();if(!response.ok)throw new Error(rows.error);renderLocal(rows);}catch(e){message.textContent=e.message;}})();
+ upload.addEventListener('submit',async e=>{e.preventDefault();const pdf=file.files[0];if(!pdf)return;if(pdf.size>6*1024*1024){message.textContent='Gebruik een PDF van maximaal 6 MB.';return;}submit.disabled=true;try{const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('PDF kon niet worden gelezen.'));reader.readAsDataURL(pdf);});const response=await fetch('/api/reports/'+plate,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:pdf.name,data})}),rows=await response.json();if(!response.ok)throw new Error(rows.error);renderLocal(rows);file.value='';message.textContent='PDF lokaal bewaard. De inhoud is niet als geverifieerde voertuighistorie verwerkt.';}catch(e){message.textContent=e.message;}finally{submit.disabled=false;}});
+ return box;
+}
+async function applyReports(selection){const plate=current.plate;await search(plate,false,selection);if(current){activeTab='rapporten';$('details').setAttribute('aria-labelledby','tab-rapporten');renderDetails();}}
 
 function photoView(compact=false){
   const box=element('section',undefined,compact?'photo-strip':'photo-section');
@@ -284,6 +313,7 @@ function renderDetails(){
   const query=$('field-query').value.trim().toLowerCase(),out=$('details');out.replaceChildren();
   if(query)out.append(allView(query));
   else if(activeTab==='overzicht')out.append(overview());
+  else if(activeTab==='rapporten')out.append(reportView());
   else if(activeTab==='fotos')out.append(photoView());
   else if(activeTab==='energie')out.append(energyView());
   else if(activeTab==='keuringen')out.append(inspectionView());

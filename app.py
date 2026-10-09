@@ -1,5 +1,7 @@
 """Kenteken Check: WSGI application with no framework dependencies."""
 import photos
+import reports
+import base64
 import supplemental
 import itertools
 import hashlib
@@ -12,7 +14,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import quote, urlparse, parse_qs, urlencode
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).parent
@@ -42,7 +44,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -79,7 +81,7 @@ def fetch_rows(dataset, label, filters):
     for offset in itertools.count(0, 1000):
         params = dict(filters, **{'$limit': 1000, '$offset': offset})
         url = f'https://opendata.rdw.nl/resource/{dataset}.json?' + urlencode(params)
-        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.5.1', 'Accept': 'application/json'})
+        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.6.0', 'Accept': 'application/json'})
         try:
             with urlopen(request, timeout=12) as response:
                 raw = response.read(4_000_001)
@@ -128,6 +130,7 @@ def source_metadata():
         sources[key] = {'label': label, 'url': url, 'scope': 'historie', 'provider': 'Beschikbaarheid historie', 'fields': {}}
     sources['modelfotos'] = photos.SOURCE
     sources.update(supplemental.metadata())
+    sources.update(reports.metadata())
     return sources
 
 def fetch_approval(key, vehicle):
@@ -152,7 +155,7 @@ def fetch_external(key, plate):
         return [], 'Een persoonlijke API-sleutel ontbreekt; deze externe bron is niet aangesloten.'
     suffix, label = EXTERNALS[key]
     request = Request(f'https://123kentekencheck.nl/api/v1/kenteken/{plate}{suffix}',
-                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.5.1', 'Accept': 'application/json'})
+                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.6.0', 'Accept': 'application/json'})
     try:
         with urlopen(request, timeout=12) as response:
             raw = response.read(4_000_001)
@@ -251,7 +254,7 @@ def changes_between(before, after):
     changes = []
     for key, rows in after.items():
         # Do not misreport source outages or newly enabled datasets as vehicle changes.
-        if key in supplemental.SOURCES or key == 'modelfotos':
+        if key in supplemental.SOURCES or key in reports.PROVIDERS or key == 'modelfotos':
             continue  # Context source changes do not prove an individual vehicle event.
         old = before.get(key)
         if old is None or rows is None:
@@ -338,6 +341,14 @@ def lookup(plate, refresh=False, selection=None):
     sections.update(extra)
     reasons.update(extra_reasons)
     warnings.extend(extra_warnings)
+    vehicle=(sections.get('voertuig') or [{}])[0]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        jobs={pool.submit(reports.fetch,key,selection.get('report_urls',{}).get(key,''),vehicle):key for key in reports.PROVIDERS}
+        for job in as_completed(jobs):
+            key=jobs[job]
+            try:sections[key],reasons[key]=job.result()
+            except reports.ReportError as exc:
+                sections[key]=None;reasons[key]=str(exc);warnings.append(reports.PROVIDERS[key]['label']+': '+str(exc))
     try:
         sections['modelfotos'], reasons['modelfotos'] = photos.find((sections.get('voertuig') or [{}])[0], sections.get('eu_model') or [], DATA)
     except photos.PhotoError as exc:
@@ -363,10 +374,41 @@ def application(environ, start_response):
                ('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'")]
     content_type = 'application/json; charset=utf-8'
     try:
-        if method not in ('GET', 'HEAD'):
+        if method not in ('GET','HEAD') and not (path.startswith('/api/reports/') and method in ('POST','DELETE')):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.5.1"}'
+            body = b'{"status":"ok","version":"0.6.0"}'
+        elif path.startswith('/api/reports/'):
+            parts=path.removeprefix('/api/reports/').split('/');plate=normalize(parts[0])
+            if method in ('POST','DELETE'):
+                if environ.get('HTTP_ORIGIN') and urlparse(environ['HTTP_ORIGIN']).netloc!=environ.get('HTTP_HOST'):raise LookupError('Ongeldige aanvraagherkomst.',400)
+            try:
+                if method=='POST':
+                    if environ.get('CONTENT_TYPE','').split(';')[0]!='application/json':raise ValueError('Gebruik JSON voor een rapportupload.')
+                    size=int(environ.get('CONTENT_LENGTH','0'))
+                    if not 0<size<9_000_000:raise ValueError('Gebruik een PDF van maximaal 6 MB.')
+                    value=json.loads(environ['wsgi.input'].read(size))
+                    raw=base64.b64decode(value['data'],validate=True)
+                    reports.save_document(DATA,plate,value['name'],raw)
+                elif method=='DELETE':
+                    if len(parts)!=2:raise ValueError('Rapport-ID ontbreekt.')
+                    reports.document(DATA,plate,parts[1],delete=True)
+                body=json.dumps(reports.documents(DATA,plate),ensure_ascii=False).encode()
+            except FileNotFoundError as exc:raise LookupError(str(exc),404) from exc
+            except (ValueError,KeyError,TypeError) as exc:raise LookupError(str(exc),400) from exc
+            headers.append(('Cache-Control','no-store'))
+        elif path.startswith('/api/report-file/'):
+            parts=path.removeprefix('/api/report-file/').split('/')
+            if len(parts)!=2:raise LookupError('Rapport niet gevonden.',404)
+            try:row,body=reports.document(DATA,normalize(parts[0]),parts[1])
+            except FileNotFoundError as exc:raise LookupError(str(exc),404) from exc
+            content_type='application/pdf';headers.extend([('Content-Disposition',"attachment; filename=\"rapport.pdf\"; filename*=UTF-8''"+quote(row['name'],safe='')),('Cache-Control','no-store')])
+        elif path=='/api/report-options':
+            query=parse_qs(environ.get('QUERY_STRING',''));key=query.get('source',[''])[0];make=query.get('make',[''])[0];model=query.get('model',[''])[0]
+            if key not in reports.PROVIDERS or not make or not model or len(make)>100 or len(model)>100:raise LookupError('Ongeldige rapportzoekopdracht.',400)
+            try:body=json.dumps(reports.catalog(key,make,model),ensure_ascii=False).encode()
+            except reports.ReportError as exc:raise LookupError(str(exc)) from exc
+            headers.append(('Cache-Control','no-store'))
         elif path.startswith('/api/photo/'):
             try: body, content_type = photos.media(path.removeprefix('/api/photo/'), DATA)
             except FileNotFoundError as exc: raise LookupError(str(exc), 404) from exc

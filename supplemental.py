@@ -1,4 +1,5 @@
 """Dutch and European public sources. Context records never prove individual history."""
+import reports
 import itertools
 import json
 import re
@@ -24,17 +25,18 @@ def metadata():
             for key, (label, url, provider, note) in SOURCES.items()}
 
 def context(values):
-    if set(values) - {'model_slug', 'eea_enabled'}: raise ValueError('Onbekende aanvullende zoekoptie.')
+    if set(values) - {'model_slug', 'eea_enabled','report_urls'}: raise ValueError('Onbekende aanvullende zoekoptie.')
     slug = values.get('model_slug', '')
     if not isinstance(slug, str) or not re.fullmatch(r'[a-z0-9-]{0,120}', slug):
         raise ValueError('Ongeldige Europese modelselectie.')
     enabled = values.get('eea_enabled', False)
     if not isinstance(enabled, bool): raise ValueError('Ongeldige keuze voor EEA.')
-    return {**({'model_slug': slug} if slug else {}), **({'eea_enabled': True} if enabled else {})}
+    report_urls=reports.validate_selection(values.get('report_urls',{}))
+    return {**({'report_urls':report_urls} if report_urls else {}), **({'model_slug': slug} if slug else {}), **({'eea_enabled': True} if enabled else {})}
 
 def get(url):
     try:
-        with urlopen(Request(url, headers={'Accept': 'application/json', 'User-Agent': 'KentekenCheck/0.5.1'}), timeout=12) as response:
+        with urlopen(Request(url, headers={'Accept': 'application/json', 'User-Agent': 'KentekenCheck/0.6.0'}), timeout=12) as response:
             raw = response.read(8_000_001)
         if len(raw) > 8_000_000: raise ValueError('Response too large')
         data = json.loads(raw)

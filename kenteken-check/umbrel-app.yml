@@ -2,7 +2,7 @@ manifestVersion: 1
 id: kenteken-check
 category: utilities
 name: Kenteken Check
-version: "0.5.1"
+version: "0.6.0"
 tagline: Nederlandse voertuiggegevens zonder betaalmuur
 description: >-
   Bekijk alle ontvangen kentekengegevens met een duidelijke status per bron:
@@ -12,10 +12,11 @@ description: >-
   API-koppeling gebruikt je eigen sleutel. Geen gegevens worden als compleet
   voorgesteld wanneer de bron ze niet levert.
 releaseNotes: >-
-  Strengere fotomatching: kies eerst model en generatie. Merk, volledige
-  modelnaam en generatie moeten samen in de bronmetadata staan. Geen foto
-  bij onbekende generatie, tegenstrijdige metadata of ontbrekende match.
-  Directe knop voor generatiekeuze en vervallen oude fotocaches.
+  Donkere, beter leesbare lay-out met duidelijke panelen en mobiele
+  statistieken. Nieuw rapporttabblad: Europese modelrapporten van Euro NCAP,
+  Green NCAP en ADAC, met eigen gecontroleerde rapportkeuze en originele
+  PDF-links. Eigen PDF-rapporten per kenteken lokaal bewaren, downloaden
+  en verwijderen. Bronstatussen en duidelijke grenzen aan rapportkoppeling.
 developer: Kevin van Krugten
 website: https://github.com/TheRoyalCaptain/Kenteken-Check
 dependencies: []

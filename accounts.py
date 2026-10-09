@@ -35,11 +35,20 @@ def database(root):
         CREATE TABLE IF NOT EXISTS attempts (key TEXT PRIMARY KEY, start REAL NOT NULL, count INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS favorites (user_id INTEGER NOT NULL REFERENCES users(id), plate TEXT NOT NULL, watch INTEGER NOT NULL, next_due REAL NOT NULL, lease REAL NOT NULL DEFAULT 0, checked REAL, error TEXT NOT NULL DEFAULT '', PRIMARY KEY(user_id,plate));
         CREATE TABLE IF NOT EXISTS preferences (user_id INTEGER NOT NULL REFERENCES users(id), key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(user_id,key));
+        CREATE TABLE IF NOT EXISTS lookup_counts (user_id INTEGER NOT NULL REFERENCES users(id), identifier TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id,identifier));
     ''')
     os.chmod(root / 'platform.sqlite', 0o600)
     try:
         with db: yield db
     finally: db.close()
+
+def lookup_count(root, ident, identifier, increment=False):
+    """Account-private count; never part of vehicle snapshots or source history."""
+    with database(root) as db:
+        if increment:
+            db.execute('INSERT INTO lookup_counts (user_id,identifier,count) VALUES (?,?,1) ON CONFLICT(user_id,identifier) DO UPDATE SET count=count+1', (ident,identifier))
+        row = db.execute('SELECT count FROM lookup_counts WHERE user_id=? AND identifier=?', (ident,identifier)).fetchone()
+        return row['count'] if row else 0
 
 def username(value):
     if not isinstance(value, str) or not re.fullmatch(r'[a-zA-Z0-9_.-]{3,40}', value):

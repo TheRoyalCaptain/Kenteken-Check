@@ -30,7 +30,9 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
   await page.route('**/api/vehicle/**',async route=>{
    const url=new URL(route.request().url()),plate=decodeURIComponent(url.pathname.split('/').at(-1)).replace(/[-\s]/g,'').toUpperCase();
    if(plate==='XXXXXX')return route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({error:'Niet gevonden'})});
-   const data=fixture(plate);
+   const data=fixture(plate);data.lookup_count=7;
+   if(!url.searchParams.has('selection')&&!url.searchParams.has('refresh'))assert.equal(route.request().headers()['x-lookup-count'],'1');
+   else assert.equal(route.request().headers()['x-lookup-count'],undefined);
    if(url.searchParams.has('selection'))selections.set(plate,JSON.parse(url.searchParams.get('selection')));
    data.selection=selections.get(plate)||{};
    data.sources={...data.sources,eu_registraties:{label:'Europese registraties',scope:'extern',provider:'European Environment Agency (EEA)',note:'Europese context, geen individuele historie.',url:'https://www.eea.europa.eu'},nl_teruggeroepen:{label:'Nederlandse terugroepinformatie',scope:'extern',provider:'Teruggeroepen.nl',note:'Gekoppelde RDW-referentie',url:'https://www.teruggeroepen.nl'},eu_model:{label:'Europese modelspecificaties',scope:'extern',provider:'autoseeker.eu',licence:'CC BY 4.0',note:'Indicatieve Europese modelinformatie',url:'https://autoseeker.eu/data/'}};

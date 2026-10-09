@@ -16,14 +16,38 @@ class AccountTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
         self.patcher=patch.object(app,'DATA',self.root);self.patcher.start()
     def tearDown(self):self.patcher.stop();self.temp.cleanup()
-    def request(self,path,method='GET',data=None,token='',csrf=True,origin='http://localhost',query=''):
+    def request(self,path,method='GET',data=None,token='',csrf=True,origin='http://localhost',query='',count=False):
         raw=json.dumps(data or {}).encode();statuses=[]
         env={'PATH_INFO':path,'REQUEST_METHOD':method,'QUERY_STRING':query,'CONTENT_TYPE':'application/json','CONTENT_LENGTH':str(len(raw)),'wsgi.input':io.BytesIO(raw),'HTTP_HOST':'localhost','HTTP_ORIGIN':origin,'REMOTE_ADDR':'127.0.0.1','HTTP_X_KC_REQUEST':'1','HTTP_COOKIE':'kc_session='+token}
         if csrf and token:env['HTTP_X_CSRF_TOKEN']=accounts.csrf(token)
+        if count:env['HTTP_X_LOOKUP_COUNT']='1'
         body=b''.join(app.application(env,lambda s,h:statuses.append((s,dict(h)))))
         return statuses[0][0],statuses[0][1],json.loads(body)
     def user(self,name='alice',role='user'):
         user=accounts.create(self.root,name,PASSWORD,role);return user,accounts.issue(self.root,user)
+    def test_persistent_personal_lookup_counter(self):
+        alice,token=self.user();bob,other=self.user('bob')
+        with patch.object(app,'lookup',side_effect=lambda *a,**k:{'plate':'AB123C'}):
+            self.assertTrue(self.request('/api/vehicle/AB123C',token=token,count=True,csrf=False)[0].startswith('403'))
+            for expected in (1,2,3):
+                self.assertEqual(self.request('/api/vehicle/AB123C',token=token,count=True)[2]['lookup_count'],expected)
+            for query in ('','refresh=1','selection=%7B%7D'):
+                self.assertEqual(self.request('/api/vehicle/AB123C',token=token,query=query,count=bool(query))[2]['lookup_count'],3)
+            self.assertEqual(self.request('/api/vehicle/AB123C',token=other)[2]['lookup_count'],0)
+            self.assertEqual(self.request('/api/vehicle/AB123C',token=other,count=True)[2]['lookup_count'],1)
+        with patch.object(app,'lookup',side_effect=app.LookupError('Ongeldig',400)):
+            self.assertTrue(self.request('/api/vehicle/invalid',token=token,count=True)[0].startswith('400'))
+        self.assertEqual(accounts.lookup_count(self.root,alice['id'],'AB123C'),3)
+        context=app.CURRENT_USER.set(alice['id'])
+        try:
+            data={'plate':'AB123C'};app.add_lookup_count(data,{'REQUEST_METHOD':'HEAD','HTTP_X_LOOKUP_COUNT':'1'},{});self.assertEqual(data['lookup_count'],3)
+        finally:app.CURRENT_USER.reset(context)
+    def test_lookup_counter_atomic_updates(self):
+        from concurrent.futures import ThreadPoolExecutor
+        user,_=self.user()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _:accounts.lookup_count(self.root,user['id'],'AB123C',True),range(40)))
+        self.assertEqual(accounts.lookup_count(self.root,user['id'],'AB123C'),40)
     def test_hash_salt_verification_no_plaintext_and_cookie_attributes(self):
         a=accounts.password_hash(PASSWORD);b=accounts.password_hash(PASSWORD)
         self.assertNotEqual(a,b);self.assertTrue(accounts.verify(PASSWORD,a));self.assertFalse(accounts.verify('wrong',a));self.assertNotIn(PASSWORD,a)

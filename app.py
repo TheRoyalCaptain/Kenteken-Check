@@ -469,7 +469,7 @@ def _application(environ, start_response):
         if method not in ('GET','HEAD') and not (path.startswith('/api/reports/') and method in ('POST','DELETE')):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.9.0"}'
+            body = b'{"status":"ok","version":"0.10.0"}'
         elif path.startswith('/api/reports/'):
             parts=path.removeprefix('/api/reports/').split('/');plate=normalize_identifier(parts[0])
             if method in ('POST','DELETE'):
@@ -521,6 +521,7 @@ def _application(environ, start_response):
                 try:selection=json.loads(query['selection'][0])
                 except ValueError as exc:raise LookupError('Ongeldige VIN-bronkeuze.',400) from exc
             result=lookup_vin(path.removeprefix('/api/vin/'),query.get('refresh')==['1'],selection)
+            add_lookup_count(result,environ,query)
             body=json.dumps(result,ensure_ascii=False).encode();headers.append(('Cache-Control','no-store'))
         elif path.startswith('/api/vehicle/'):
             query = parse_qs(environ.get('QUERY_STRING', ''))
@@ -531,6 +532,7 @@ def _application(environ, start_response):
                     if not isinstance(selection, dict): raise ValueError('Invalid selection')
                 except ValueError as exc: raise LookupError('Ongeldige aanvullende zoekopties.', 400) from exc
             result = lookup(path.removeprefix('/api/vehicle/'), query.get('refresh') == ['1'], selection)
+            add_lookup_count(result,environ,query)
             body = json.dumps(result, ensure_ascii=False).encode()
             headers.append(('Cache-Control', 'no-store'))
         else:
@@ -628,6 +630,14 @@ def account_routes(environ, user, token):
         return accounts.preferences(DATA,user['id'],key,value),issued
     raise accounts.AccountError('Pagina niet gevonden.',404)
 
+def add_lookup_count(result, environ, query):
+    user = CURRENT_USER.get()
+    if user is not None:
+        increment = (environ.get('REQUEST_METHOD','GET') == 'GET'
+                     and environ.get('HTTP_X_LOOKUP_COUNT') == '1'
+                     and 'refresh' not in query and 'selection' not in query)
+        result['lookup_count'] = accounts.lookup_count(DATA,user,result['plate'],increment)
+
 def application(environ, start_response):
     path=environ.get('PATH_INFO','/');method=environ.get('REQUEST_METHOD','GET')
     if path=='/' or path=='/health' or path.startswith('/static/'):
@@ -639,7 +649,7 @@ def application(environ, start_response):
         public=path in ('/auth/state','/auth/login','/auth/setup')
         if not public and not user:raise accounts.AccountError('Log in om deze gegevens te bekijken.',401)
         query=parse_qs(environ.get('QUERY_STRING',''))
-        mutable=method not in ('GET','HEAD') or (path.startswith(('/api/vehicle/','/api/vin/')) and ('selection' in query or 'refresh' in query))
+        mutable=method not in ('GET','HEAD') or (path.startswith(('/api/vehicle/','/api/vin/')) and ('selection' in query or 'refresh' in query or environ.get('HTTP_X_LOOKUP_COUNT')=='1'))
         if mutable and not public:
             if not hmac.compare_digest(environ.get('HTTP_X_CSRF_TOKEN',''),accounts.csrf(token)):raise accounts.AccountError('Sessiecontrole mislukt. Log opnieuw in.',403)
         if path.startswith('/auth/') or path.startswith('/api/garage') or path=='/api/preferences':

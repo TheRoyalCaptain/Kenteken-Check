@@ -40,7 +40,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/theroyalcaptain/kenteken-check:0.9.0
+            ghcr.io/theroyalcaptain/kenteken-check:0.10.0
             ghcr.io/theroyalcaptain/kenteken-check:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -49,7 +49,7 @@ const GROUPS = {
   'Gewichten & trekvermogen':['massa_ledig_voertuig','massa_rijklaar','toegestane_maximum_massa_voertuig','technische_max_massa_voertuig','maximum_massa_trekken_ongeremd','maximum_trekken_massa_geremd','maximum_massa_samenstelling'],
   'Afmetingen & indeling':['lengte','breedte','hoogte_voertuig','wielbasis','aantal_deuren','aantal_wielen','aantal_zitplaatsen','aantal_rolstoelplaatsen']
 };
-const TABS = [['overzicht','Overzicht'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
+const TABS = [['overzicht','Overzicht'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
 let current = null, activeTab = 'overzicht', requestId = 0, comparisons = [];
 function readList(key) {
   try {const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&/^[A-Z0-9]{6}$/.test(x)).slice(0,30):[];} catch {return [];}
@@ -187,17 +187,16 @@ function rawValue(value) {
 function rawPanel(key, query='') {
   const source=current.sources[key],rows=current.sections[key],box=panel(source.label,rows?.length??0);
   box.querySelector('.panel-head').append(statusPill(key));
+  if(source.note){note(box,source.note);const credit=element('p',undefined,'panel-note'),link=element('a','Bron: '+source.provider+(source.licence?' · '+source.licence:''));link.href=source.url;link.target='_blank';link.rel='noopener';credit.append(link);box.append(credit);}
   if(!rows?.length){note(box,sourceState(key).reason);return box;}
-  for(const [index,row]of rows.entries()) {
-    const keys=Object.keys(row).filter(k=>!query||(k+' '+(source.fields?.[k]||label(k))+' '+rawValue(row[k])+' '+source.label).toLowerCase().includes(query));
-    if(!keys.length)continue;
-    const record=element('details',undefined,'record raw-record');record.open=!!query||rows.length===1;
-    record.append(element('summary',`Record ${index+1} · ${keys.length} velden`));
-    const dl=element('dl');
-    for(const field of keys){const r=element('div',undefined,'row'),dt=element('dt',source.fields?.[field]||label(field));dt.append(element('code',field,'field-code'));const dd=element('dd',rawValue(row[field]));r.append(dt,dd);dl.append(r);}
-    record.append(dl);box.append(record);
-  }
-  return box;
+  const records=rows.map((row,index)=>({row,index,keys:Object.keys(row).filter(k=>!query||(k+' '+(source.fields?.[k]||label(k))+' '+rawValue(row[k])+' '+source.label).toLowerCase().includes(query))})).filter(record=>record.keys.length);
+  let cursor=0;const more=element('button','Toon volgende 50 records','secondary');more.type='button';
+  const next=()=>{more.remove();const end=Math.min(cursor+50,records.length);for(;cursor<end;cursor++){
+    const {row,index,keys}=records[cursor],record=element('details',undefined,'record raw-record');record.open=!!query||rows.length===1;
+    record.append(element('summary',`Record ${index+1} · ${keys.length} velden`));const dl=element('dl');
+    for(const field of keys){const r=element('div',undefined,'row'),dt=element('dt',source.fields?.[field]||label(field));dt.append(element('code',field,'field-code'));r.append(dt,element('dd',rawValue(row[field])));dl.append(r);}record.append(dl);box.append(record);
+  }if(cursor<records.length){more.textContent=`Toon volgende ${Math.min(50,records.length-cursor)} records · ${cursor}/${records.length} zichtbaar`;box.append(more);}};
+  more.addEventListener('click',next);next();if(records.length>50)note(box,'Alle records zijn opgehaald en staan in de JSON-export. Toon meer om verder te bladeren.');return box;
 }
 function allView(query=''){
   const grid=element('div',undefined,'panel-grid');let matches=0;
@@ -237,6 +236,27 @@ function historyView(){
   const unavailable=panel('Andere historische gegevens');for(const [key,source]of Object.entries(current.sources).filter(([,s])=>s.scope==='historie')){const r=element('div',undefined,'record');r.append(element('strong',source.label),element('p',sourceState(key).reason,'empty'));unavailable.append(r);}box.append(unavailable);return box;
 }
 
+const euModelMenus=new Map();
+function supplementalView(){
+  const box=element('div'),p=panel('Europese modelinformatie'),form=element('form',undefined,'source-form'),label=element('label','Model en generatie'),select=element('select'),status=element('p','Modellen ophalen…','empty');select.id='eu-model';select.disabled=true;
+  const empty=element('option','Kies een passende Europese generatie');empty.value='';select.append(empty);label.append(select);form.append(label);
+  const apply=element('button','Modelgegevens ophalen');apply.type='submit';apply.disabled=true;form.append(apply);
+  const clear=element('button','Modelselectie verwijderen','secondary');clear.type='button';clear.addEventListener('click',()=>applySupplemental(current.selection?.eea_enabled?{eea_enabled:true}:{}));form.append(clear);
+  form.addEventListener('submit',e=>{e.preventDefault();if(select.value)applySupplemental({...current.selection,model_slug:select.value});});p.append(form,status);note(p,'De lijst bevat Europese modellen van hetzelfde merk. Kies de juiste generatie zelf. Specificaties zijn indicatief en kunnen afwijken van jouw uitvoering. De Nederlandse terugroepbron wordt automatisch gekoppeld waar exacte referenties beschikbaar zijn.');box.append(p);
+  const make=vehicle().merk,selection=current.selection||{};
+  (async()=>{await Promise.resolve();if(!make){status.textContent='RDW-merk ontbreekt; geen betrouwbare modelselectie mogelijk.';return;}
+    try{let data=euModelMenus.get(make);if(!data){const response=await fetch('/api/eu-models?'+new URLSearchParams({make}));data=await response.json();if(!response.ok)throw new Error(data.error||'Modelcatalogus kon niet worden opgehaald.');euModelMenus.set(make,data);}
+      if(!form.isConnected)return;for(const item of data){const option=element('option',item.text);option.value=item.value;select.append(option);}select.value=selection.model_slug||'';select.disabled=!data.length;apply.disabled=!data.length;status.textContent=data.length?'':'Geen Europese modelgeneraties voor dit merk in deze catalogus.';
+    }catch(e){if(form.isConnected)status.textContent=e.message;}
+  })();
+  const eea=panel('Europese registraties · EEA'),eeaForm=element('form',undefined,'source-form'),eeaLabel=element('label','Europese registraties ophalen'),enabled=element('input');enabled.type='checkbox';enabled.id='eea-enabled';enabled.checked=!!selection.eea_enabled;eeaLabel.prepend(enabled);eeaForm.append(eeaLabel);const eeaApply=element('button','EEA-keuze opslaan');eeaApply.type='submit';eeaForm.append(eeaApply);eeaForm.addEventListener('submit',e=>{e.preventDefault();const next={...current.selection};if(enabled.checked)next.eea_enabled=true;else delete next.eea_enabled;applySupplemental(next);});eea.append(eeaForm);note(eea,'Bij inschakelen verstuurt de app onderstaande koppelcodes naar de European Environment Agency. Het kenteken wordt niet meegestuurd.');eea.append(rowList(vehicle(),['typegoedkeuringsnummer','variant','uitvoering']));box.append(eea);
+  box.append(element('p','Deze bronnen gebruiken Nederlandse en Europese gegevens. EEA-registraties van vergelijkbare voertuigen en gekozen modelspecificaties zijn geen historie van dit individuele kenteken.','notice'));
+  const grid=element('div',undefined,'panel-grid');for(const key of Object.keys(current.sources).filter(key=>/^(eu_|nl_|extern_)/.test(key)))grid.append(rawPanel(key));box.append(grid);return box;
+}
+async function applySupplemental(selection){
+  const plate=current.plate;await search(plate,false,selection);if(current){activeTab='aanvullend';$('details').setAttribute('aria-labelledby','tab-aanvullend');renderDetails();}
+}
+
 function renderDetails(){
   if(!current)return;
   const query=$('field-query').value.trim().toLowerCase(),out=$('details');out.replaceChildren();
@@ -245,6 +265,7 @@ function renderDetails(){
   else if(activeTab==='energie')out.append(energyView());
   else if(activeTab==='keuringen')out.append(inspectionView());
   else if(activeTab==='recalls')out.append(recallView());
+  else if(activeTab==='aanvullend')out.append(supplementalView());
   else if(activeTab==='alle')out.append(allView());
   else if(activeTab==='bronnen')out.append(sourceView());
   else if(activeTab==='historie')out.append(historyView());
@@ -269,9 +290,10 @@ function render(){
   $('tabs').replaceChildren();for(const [key,title]of TABS){const b=element('button',title);b.dataset.key=key;b.setAttribute('role','tab');b.id='tab-'+key;b.setAttribute('aria-controls','details');b.addEventListener('click',()=>{activeTab=key;$('field-query').value='';$('details').setAttribute('aria-labelledby',b.id);renderDetails();b.scrollIntoView({block:'nearest',inline:'nearest'});});$('tabs').append(b);}
   activeTab='overzicht';$('field-query').value='';$('details').setAttribute('aria-labelledby','tab-overzicht');renderDetails();favoriteButton();
 }
-async function search(plate,refresh=false){
+async function search(plate,refresh=false,selection=undefined){
   const id=++requestId;$('submit').disabled=true;$('refresh').disabled=true;$('result').hidden=true;$('welcome').hidden=true;current=null;message('Voertuiggegevens ophalen…');$('plate').value=plate;
-  try{const response=await fetch('/api/vehicle/'+encodeURIComponent(plate)+(refresh?'?refresh=1':''));const data=await response.json();if(id!==requestId)return;if(!response.ok)throw new Error(data.error||'De gegevens konden niet worden opgehaald.');
+  const params=new URLSearchParams();if(refresh)params.set('refresh','1');if(selection!==undefined)params.set('selection',JSON.stringify(selection));
+  try{const response=await fetch('/api/vehicle/'+encodeURIComponent(plate)+(params.size?'?'+params.toString():''));const data=await response.json();if(id!==requestId)return;if(!response.ok)throw new Error(data.error||'De gegevens konden niet worden opgehaald.');
     current=data;recent=[data.plate,...recent.filter(x=>x!==data.plate)].slice(0,8);saveList('kc-recent',recent);garage();render();message('');
   }catch(e){if(id===requestId){message(e.message||'Geen verbinding met de app.','error');$('welcome').hidden=false;}}
   finally{if(id===requestId){$('submit').disabled=false;$('refresh').disabled=false;}}

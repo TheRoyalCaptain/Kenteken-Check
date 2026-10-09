@@ -7,6 +7,7 @@ const {chromium} = require('playwright');
 const port = 8081;
 const server = spawn(process.env.PYTHON || 'python', ['-c', `from wsgiref.simple_server import make_server; import app; make_server('127.0.0.1',${port},app.application).serve_forever()`], {cwd:path.join(__dirname,'..'),stdio:'ignore'});
 const sources = Object.fromEntries(['voertuig','brandstof','assen','carrosserie','carrosserie_specifiek','voertuigklasse','keuringen','gebreken','objecten','terugroepstatus','gebrekbeschrijvingen','terugroepdetails'].map(key=>[key,{label:key,url:'https://opendata.rdw.nl'}]));
+const selections=new Map();
 function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/1000,cached:false,warnings:[],sources,sections:{
   voertuig:[{kenteken:plate,merk:'VOLKSWAGEN',handelsbenaming:'GOLF GTE',inrichting:'hatchback',eerste_kleur:'BLAUW',datum_eerste_toelating:'20210611',datum_eerste_tenaamstelling_in_nederland:'20220611',vervaldatum_apk:'20270611',massa_rijklaar:'1624',maximum_trekken_massa_geremd:'1500',tellerstandoordeel:'Logisch',wam_verzekerd:'Ja',openstaande_terugroepactie_indicator:'Ja',aantal_zitplaatsen:'5',cilinderinhoud:'1395',catalogusprijs:'43000',datum_eerste_toelating_dt:'2021-06-11T12:34:56.000',api_gekentekende_voertuigen_brandstof:'https://opendata.rdw.nl/resource/8ys7-d773.json',lege_waarde:'',null_waarde:null}],
   brandstof:[{brandstof_omschrijving:'Benzine',nettomaximumvermogen:'110',brandstofverbruik_gecombineerd_wltp:'5.5'},{brandstof_omschrijving:'Elektriciteit',nettomaximumvermogen:'80',actie_radius_extern_opladen_wltp:'62'}],
@@ -26,9 +27,16 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
    const url=new URL(route.request().url()),plate=decodeURIComponent(url.pathname.split('/').at(-1)).replace(/[-\s]/g,'').toUpperCase();
    if(plate==='XXXXXX')return route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({error:'Niet gevonden'})});
    const data=fixture(plate);
+   if(url.searchParams.has('selection'))selections.set(plate,JSON.parse(url.searchParams.get('selection')));
+   data.selection=selections.get(plate)||{};
+   data.sources={...data.sources,eu_registraties:{label:'Europese registraties',scope:'extern',provider:'European Environment Agency (EEA)',note:'Europese context, geen individuele historie.',url:'https://www.eea.europa.eu'},nl_teruggeroepen:{label:'Nederlandse terugroepinformatie',scope:'extern',provider:'Teruggeroepen.nl',note:'Gekoppelde RDW-referentie',url:'https://www.teruggeroepen.nl'},eu_model:{label:'Europese modelspecificaties',scope:'extern',provider:'autoseeker.eu',licence:'CC BY 4.0',note:'Indicatieve Europese modelinformatie',url:'https://autoseeker.eu/data/'}};
+   data.sections.nl_teruggeroepen=[{referentiecode:'MGP123',defect:'Nederlands voorbeelddefect'}];
+   data.sections.eu_model=data.selection.model_slug?[{catalogus_meta:{license:'CC BY 4.0'},model:{slug:data.selection.model_slug,generatie:'VII facelift',specs:{kofferbak_liter:272}}}]:[];
+   data.sections.eu_registraties=data.selection.eea_enabled?Array.from({length:60},(_,i)=>({ID:i+1,MS:'NL',Year:2021,Ewltp:123})):[];
    if(plate==='CD456E'){data.sections.brandstof=null;data.sections.gebreken=[];data.sections.terugroepstatus=[];data.sections.terugroepdetails=[];data.warnings=['Brandstof kon niet worden opgehaald.'];}
    await route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
   });
+  await page.route('**/api/eu-models?*',route=>route.fulfill({contentType:'application/json',body:JSON.stringify([{value:'volkswagen-golf7-gte-2018',text:'Volkswagen · Golf GTE · VII facelift'}])}));
   await page.goto(`http://127.0.0.1:${port}`);
   await page.fill('#plate','AB-123-C');await page.click('#submit');await page.waitForSelector('#result:not([hidden])');
   assert.equal(await page.locator('#vehicle-title').textContent(),'VOLKSWAGEN GOLF GTE');
@@ -43,6 +51,18 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
   await page.click('#tab-alle');assert((await page.locator('#details').textContent()).includes('2021-06-11T12:34:56.000'));assert((await page.locator('#details').textContent()).includes('https://opendata.rdw.nl/resource/8ys7-d773.json'));assert((await page.locator('#details').textContent()).includes('(lege waarde)'));assert((await page.locator('#details').textContent()).includes('null'));
   await page.click('#tab-bronnen');assert((await page.locator('#details').textContent()).includes('Niet beschikbaar'));
   await page.click('#tab-historie');assert((await page.locator('#details').textContent()).includes('Gebrek geconstateerd'));
+  await page.click('#tab-aanvullend');await page.waitForFunction(()=>!document.querySelector('#eu-model').disabled);
+  await page.selectOption('#eu-model','volkswagen-golf7-gte-2018');await page.getByRole('button',{name:'Modelgegevens ophalen',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#tab-aanvullend')?.getAttribute('aria-selected')==='true'&&document.querySelector('#details').textContent.includes('kofferbak_liter'));
+  await page.waitForFunction(()=>document.querySelector('#eu-model')?.value==='volkswagen-golf7-gte-2018'&&!document.querySelector('#eu-model').disabled);
+  assert.equal(await page.locator('#eea-enabled').isChecked(),false);
+  await page.check('#eea-enabled');await page.getByRole('button',{name:'EEA-keuze opslaan',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#tab-aanvullend')?.getAttribute('aria-selected')==='true'&&document.querySelector('#details').textContent.includes('50/60 zichtbaar'));
+  await page.getByRole('button',{name:'Toon volgende 10 records · 50/60 zichtbaar',exact:true}).click();
+  assert((await page.locator('#details').textContent()).includes('Record 60'));
+  if(process.env.KC_SCREENSHOTS){fs.mkdirSync(process.env.KC_SCREENSHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.KC_SCREENSHOTS,'eu-desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(process.env.KC_SCREENSHOTS,'eu-mobile.png'),fullPage:true});await page.setViewportSize({width:1280,height:900});}
+  await page.getByRole('button',{name:'Modelselectie verwijderen',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#eu-model')?.value===''&&!document.querySelector('#eu-model').disabled&&document.querySelector('#tab-aanvullend')?.getAttribute('aria-selected')==='true'&&!document.querySelector('#details').textContent.includes('kofferbak_liter'));
+  assert.equal(await page.locator('#eea-enabled').isChecked(),true);
   await page.click('#tab-overzicht');await page.click('#compare');
   const screenshots=process.env.KC_SCREENSHOTS;
   if(screenshots){fs.mkdirSync(screenshots,{recursive:true});await page.screenshot({path:path.join(screenshots,'desktop.png'),fullPage:true});}
@@ -54,10 +74,10 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
   assert((await page.locator('#comparison-content').textContent()).includes('CD456E'));
   await page.reload();await page.locator('#garage summary').click();assert((await page.locator('#favorites').textContent()).includes('AB123C'));
   await page.locator('#favorites button').first().click();await page.waitForSelector('#result:not([hidden])');
-  for(const width of [390,320]){await page.setViewportSize({width,height:844});for(const [key]of [['overzicht'],['techniek'],['energie'],['keuringen'],['recalls'],['extra'],['historie'],['bronnen'],['alle']]){await page.click('#tab-'+key);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`Overflow at ${width} in ${key}`);}}
+  for(const width of [390,320]){await page.setViewportSize({width,height:844});for(const [key]of [['overzicht'],['techniek'],['energie'],['keuringen'],['recalls'],['extra'],['aanvullend'],['historie'],['bronnen'],['alle']]){await page.click('#tab-'+key);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`Overflow at ${width} in ${key}`);}}
   await page.click('#tab-overzicht');await page.setViewportSize({width:390,height:844});if(screenshots)await page.screenshot({path:path.join(screenshots,'mobile.png'),fullPage:true});
   await page.locator('.export-menu summary').click();const download=page.waitForEvent('download');await page.click('#export');assert.equal((await download).suggestedFilename(),'kenteken-AB123C.json');
   await page.fill('#plate','XXXXXX');await page.click('#submit');await page.waitForSelector('#message.error');assert.equal(await page.locator('#result').isVisible(),false);
-  assert.deepEqual(errors,[]);console.log('Browser checks passed: tabs, data search, two fuels, recall details, empty/error states, favorites persistence, comparison, export, 320px/390px layout.');
+  assert.deepEqual(errors,[]);console.log('Browser checks passed: European model selection, EEA opt-in and record pagination, tabs, data search, two fuels, recall details, empty/error states, favorites persistence, comparison, export, 320px/390px layout.');
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

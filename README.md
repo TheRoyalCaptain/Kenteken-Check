@@ -1,4 +1,4 @@
-# Kenteken Check — 0.3.0
+# Kenteken Check — 0.4.0
 
 Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
 
@@ -15,7 +15,7 @@ Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaar
 
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.3.0**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.4.0**. Herlaad de pagina na de update. Poort: 8767.
 
 De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
@@ -26,6 +26,20 @@ De meegeleverde `rdw_catalog.json` is gecontroleerd tegen de officiële Socrata-
 Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuigsubcategorie (`2ba7-embk`), voertuigbijzonderheden (`7ug8-2dtt`) en rupsbanden (`3xwf-ince`). Terugroepgevaren (`9ihi-jgpf`), informeren (`mh8w-8cup`) en modellen (`mu2x-mu5e`) zijn gekoppeld op een terugroepreferentie die voor dit kenteken gevonden is. De modellenlijst beschrijft de actie en is geen lijst van eigenschappen van dit individuele voertuig. Telleruitleg (`jqs4-4kvw`) gebruikt de geregistreerde toelichtingscode.
 
 De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
+
+## Aanvullende Nederlandse en Europese bronnen (0.4.0)
+
+De app gebruikt uitsluitend Nederlandse en Europese bronnen. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
+
+- **Teruggeroepen.nl**: automatisch gekoppeld op de terugroepreferenties die RDW voor het kenteken heeft geleverd. Het volledige oorspronkelijke antwoord bevat ook broninformatie, modellen, aantallen en datums. De onderliggende data komen uit RDW; dit is geen onafhankelijke extra bevestiging. Een ontbrekende melding en een storing krijgen verschillende statussen. Attribution en bronlink staan bij de resultaten. Documentatie: https://www.teruggeroepen.nl/api
+- **autoseeker.eu**: gratis Europese modelcatalogus onder CC BY 4.0. Open **Aanvullende bronnen** en selecteer zelf een model/generatie van hetzelfde merk. De server controleert merk en catalogus-ID. Geen automatische gok op model of bouwjaar. Alle originele specificaties en catalogusmetadata worden getoond en bewaard, met bronvermelding en link. De catalogus is indicatief en bevat niet iedere historische uitvoering; gegevens zijn geen bewezen eigenschappen van jouw specifieke auto. Documentatie: https://autoseeker.eu/data/
+- **European Environment Agency (EEA)**: de openbare Discodata-API met Europese CO2-registraties. Expliciet inschakelbaar bij **Aanvullende bronnen**; vóór het ophalen staan de te versturen typegoedkeurings-, variant- en uitvoeringscodes in beeld. Het kenteken wordt niet verstuurd. De adapter gebruikt de volledige exacte codes, filtert ook de ontvangen records op letterlijke overeenstemming en haalt alle pagina's op. Geen koppeling als codes ontbreken of de exacte uitvoering niet wordt gevonden. Gegevens tonen Europese registraties van dezelfde uitvoering, met land, registratiejaar, voorlopige/definitieve status en originele emissie-/technische velden. Dit is geen historie van het individuele voertuig. Documentatie: https://discodata.eea.europa.eu/Help.html
+
+EEA is standaard uitgeschakeld. De openbare API en schema zijn gecontroleerd met een algemeen voorbeeldrecord. Een live proef met codes uit het lokale voertuigresultaat is door automatische goedkeuringscontrole geblokkeerd en daardoor niet afgerond. De adapter is met gecontroleerde bronantwoorden getest; toestemming voor die specifieke live proef is nog nodig. De Nederlandse terugroep-API en Europese modelcatalogus zijn wel live gecontroleerd.
+
+Modelkeuze en EEA-keuze worden per kenteken lokaal bewaard en bij latere zoekopdrachten gebruikt. Verwijder een modelkeuze met **Modelselectie verwijderen**. Schakel EEA uit door het vinkje weg te halen en **EEA-keuze opslaan** te kiezen. Eerder ontvangen context blijft in de historie-export; wijzigingen van contextbronnen worden niet als individuele voertuiggebeurtenissen gepresenteerd. De modelcatalogus wordt maximaal 24 uur in geheugen gecachet. Voor grote bronnen toont de interface 50 records tegelijk, met **Toon volgende records**; alle opgehaalde records staan in de JSON-export en zijn doorzoekbaar.
+
+De optionele 123kentekencheck-koppeling blijft beschikbaar met persoonlijke API-sleutel. Andere leveranciers met alleen een gratis demo of testdataset zijn niet als onbeperkte gratis bron aangesloten.
 
 ## Externe gegevens
 

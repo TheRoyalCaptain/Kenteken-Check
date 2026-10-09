@@ -77,7 +77,7 @@ class AppTests(unittest.TestCase):
             db.execute('INSERT INTO cache VALUES (?, ?, ?)', ('AB123C', app.time.time(), json.dumps({'sections': {'voertuig': []}})))
         with patch.object(app, 'fetch_dataset', side_effect=lambda key, plate: [{'kenteken': plate}] if key == 'voertuig' else []) as mock:
             result = app.lookup('AB123C')
-        self.assertEqual(result['schema_version'], 3)
+        self.assertEqual(result['schema_version'], app.SCHEMA_VERSION)
         self.assertEqual(mock.call_count, 14)
 
     def test_missing_parent_does_not_claim_related_data_is_empty(self):

@@ -1,4 +1,5 @@
 """Kenteken Check: WSGI application with no framework dependencies."""
+import supplemental
 import itertools
 import hashlib
 import json
@@ -40,7 +41,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -69,6 +70,7 @@ def database():
     db.execute('CREATE TABLE IF NOT EXISTS cache (plate TEXT PRIMARY KEY, fetched REAL, payload TEXT)')
     db.execute('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY, plate TEXT, observed REAL, last_seen REAL, hash TEXT, payload TEXT)')
     db.execute('CREATE INDEX IF NOT EXISTS observation_plate ON observations(plate, observed)')
+    db.execute('CREATE TABLE IF NOT EXISTS selections (plate TEXT PRIMARY KEY, context TEXT)')
     return db
 
 def fetch_rows(dataset, label, filters):
@@ -76,7 +78,7 @@ def fetch_rows(dataset, label, filters):
     for offset in itertools.count(0, 1000):
         params = dict(filters, **{'$limit': 1000, '$offset': offset})
         url = f'https://opendata.rdw.nl/resource/{dataset}.json?' + urlencode(params)
-        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.3.0', 'Accept': 'application/json'})
+        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.4.0', 'Accept': 'application/json'})
         try:
             with urlopen(request, timeout=12) as response:
                 raw = response.read(4_000_001)
@@ -123,6 +125,7 @@ def source_metadata():
         sources[key] = {'label': label, 'url': 'https://123kentekencheck.nl/api/aanmelden', 'scope': 'extern', 'provider': '123kentekencheck.nl', 'fields': {}}
     for key, (label, reason, url) in UNAVAILABLE_HISTORY.items():
         sources[key] = {'label': label, 'url': url, 'scope': 'historie', 'provider': 'Beschikbaarheid historie', 'fields': {}}
+    sources.update(supplemental.metadata())
     return sources
 
 def fetch_approval(key, vehicle):
@@ -147,7 +150,7 @@ def fetch_external(key, plate):
         return [], 'Een persoonlijke API-sleutel ontbreekt; deze externe bron is niet aangesloten.'
     suffix, label = EXTERNALS[key]
     request = Request(f'https://123kentekencheck.nl/api/v1/kenteken/{plate}{suffix}',
-                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.3.0', 'Accept': 'application/json'})
+                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.4.0', 'Accept': 'application/json'})
     try:
         with urlopen(request, timeout=12) as response:
             raw = response.read(4_000_001)
@@ -229,9 +232,9 @@ def source_statuses(sections, reasons):
 
 def remember(result):
     plate = result['plate']
-    payload = json.dumps({'sections': result['sections'], 'sources': result['sources']}, sort_keys=True, ensure_ascii=False)
+    payload = json.dumps({'sections': result['sections'], 'sources': result['sources'], 'selection': result.get('selection', {})}, sort_keys=True, ensure_ascii=False)
     canonical = {key: sorted((json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows)) if rows is not None else None for key, rows in result['sections'].items()}
-    digest = hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps({'sections': canonical, 'selection': result.get('selection', {})}, sort_keys=True).encode()).hexdigest()
     with database() as db:
         if db.execute('SELECT 1 FROM observations WHERE plate=? AND observed=? AND hash=?', (plate, result['fetched_at'], digest)).fetchone():
             return
@@ -246,6 +249,8 @@ def changes_between(before, after):
     changes = []
     for key, rows in after.items():
         # Do not misreport source outages or newly enabled datasets as vehicle changes.
+        if key in supplemental.SOURCES:
+            continue  # Context source changes do not prove an individual vehicle event.
         old = before.get(key)
         if old is None or rows is None:
             continue
@@ -268,11 +273,20 @@ def history(plate, full=False):
         previous.update({key: rows for key, rows in payload['sections'].items() if rows is not None})
     return {'plate': plate, 'observations': events, 'note': 'Eigen waarnemingen sinds het opzoeken in deze app; geen gereconstrueerde historie van vóór die tijd.'}
 
-def lookup(plate, refresh=False):
+def lookup(plate, refresh=False, selection=None):
     plate = normalize(plate)
+    if selection is not None:
+        try: selection = supplemental.context(selection)
+        except ValueError as exc: raise LookupError(str(exc), 400) from exc
+        with database() as db:
+            db.execute('INSERT OR REPLACE INTO selections VALUES (?, ?)', (plate, json.dumps(selection)))
+    else:
+        with database() as db:
+            saved = db.execute('SELECT context FROM selections WHERE plate=?', (plate,)).fetchone()
+        selection = json.loads(saved[0]) if saved else {}
     with database() as db:
         cached = db.execute('SELECT fetched, payload FROM cache WHERE plate=?', (plate,)).fetchone()
-    if cached and not refresh and time.time() - cached[0] < CACHE_SECONDS and json.loads(cached[1]).get('schema_version') == SCHEMA_VERSION and json.loads(cached[1]).get('external_enabled', False) == bool(os.environ.get('KENTEKEN_API_KEY')):
+    if cached and not refresh and time.time() - cached[0] < CACHE_SECONDS and json.loads(cached[1]).get('schema_version') == SCHEMA_VERSION and json.loads(cached[1]).get('selection', {}) == selection and json.loads(cached[1]).get('external_enabled', False) == bool(os.environ.get('KENTEKEN_API_KEY')):
         result = json.loads(cached[1])
         result['cached'] = True
         result['history'] = history(plate)
@@ -318,7 +332,11 @@ def lookup(plate, refresh=False):
     for key, (_, reason, _) in UNAVAILABLE_HISTORY.items():
         sections[key] = []
         reasons[key] = reason
-    result = {'external_enabled': bool(os.environ.get('KENTEKEN_API_KEY')), 'schema_version': SCHEMA_VERSION, 'plate': plate, 'sections': sections, 'warnings': warnings, 'fetched_at': time.time(), 'cached': False,
+    extra, extra_reasons, extra_warnings = supplemental.fetch_all(selection, sections)
+    sections.update(extra)
+    reasons.update(extra_reasons)
+    warnings.extend(extra_warnings)
+    result = {'selection': selection, 'external_enabled': bool(os.environ.get('KENTEKEN_API_KEY')), 'schema_version': SCHEMA_VERSION, 'plate': plate, 'sections': sections, 'warnings': warnings, 'fetched_at': time.time(), 'cached': False,
               'sources': source_metadata(), 'source_status': source_statuses(sections, reasons)}
     remember(result)
     # Incomplete responses are not cached, so retry can recover missing sections.
@@ -340,13 +358,25 @@ def application(environ, start_response):
         if method not in ('GET', 'HEAD'):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.3.0"}'
+            body = b'{"status":"ok","version":"0.4.0"}'
+        elif path == '/api/eu-models':
+            query = parse_qs(environ.get('QUERY_STRING', ''))
+            try: body = json.dumps(supplemental.model_options(query.get('make', [''])[0]), ensure_ascii=False).encode()
+            except ValueError as exc: raise LookupError(str(exc), 400) from exc
+            except supplemental.SourceError as exc: raise LookupError(str(exc)) from exc
+            headers.append(('Cache-Control', 'no-store'))
         elif path.startswith('/api/history/'):
             body = json.dumps(history(path.removeprefix('/api/history/'), full=True), ensure_ascii=False).encode()
             headers.append(('Cache-Control', 'no-store'))
         elif path.startswith('/api/vehicle/'):
             query = parse_qs(environ.get('QUERY_STRING', ''))
-            result = lookup(path.removeprefix('/api/vehicle/'), query.get('refresh') == ['1'])
+            selection = None
+            if 'selection' in query:
+                try:
+                    selection = json.loads(query['selection'][0])
+                    if not isinstance(selection, dict): raise ValueError('Invalid selection')
+                except ValueError as exc: raise LookupError('Ongeldige aanvullende zoekopties.', 400) from exc
+            result = lookup(path.removeprefix('/api/vehicle/'), query.get('refresh') == ['1'], selection)
             body = json.dumps(result, ensure_ascii=False).encode()
             headers.append(('Cache-Control', 'no-store'))
         else:

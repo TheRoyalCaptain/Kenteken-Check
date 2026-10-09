@@ -1,4 +1,8 @@
-# Kenteken Check — 0.10.0
+# Kenteken Check — 0.11.0
+
+## Operationeel voertuigregister (0.11.0)
+
+Een nieuwe registerstijl met donkerblauw en antraciet, compacte gegevensrijen, genummerde dossiergroepen, technische datum- en tellernotatie en duidelijke statuskleuren. De app behoudt de eigen naam Kenteken Check en gebruikt een eigen KC-icoon. Geen politienaam, politielogo of officiële emblemen. Ook het inlogscherm, de mobiele weergave en het webapp-icoon sluiten aan op het nieuwe ontwerp.
 
 ## Dossierontwerp en zoekteller (0.10.0)
 
@@ -87,7 +91,7 @@ VIN-resultaten worden maximaal een uur gecachet; **Vernieuwen** kan bij ingescha
 
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.10.0**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.11.0**. Herlaad de pagina na de update. Poort: 8767.
 
 De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. De app verzorgt eigen accounts en het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 

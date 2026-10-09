@@ -469,7 +469,7 @@ def _application(environ, start_response):
         if method not in ('GET','HEAD') and not (path.startswith('/api/reports/') and method in ('POST','DELETE')):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.10.0"}'
+            body = b'{"status":"ok","version":"0.11.0"}'
         elif path.startswith('/api/reports/'):
             parts=path.removeprefix('/api/reports/').split('/');plate=normalize_identifier(parts[0])
             if method in ('POST','DELETE'):

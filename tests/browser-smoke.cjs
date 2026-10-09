@@ -32,10 +32,10 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
    data.selection=selections.get(plate)||{};
    data.sources={...data.sources,eu_registraties:{label:'Europese registraties',scope:'extern',provider:'European Environment Agency (EEA)',note:'Europese context, geen individuele historie.',url:'https://www.eea.europa.eu'},nl_teruggeroepen:{label:'Nederlandse terugroepinformatie',scope:'extern',provider:'Teruggeroepen.nl',note:'Gekoppelde RDW-referentie',url:'https://www.teruggeroepen.nl'},eu_model:{label:'Europese modelspecificaties',scope:'extern',provider:'autoseeker.eu',licence:'CC BY 4.0',note:'Indicatieve Europese modelinformatie',url:'https://autoseeker.eu/data/'}};
    data.sources.modelfotos={label:'Voorbeeldfoto’s',scope:'extern',url:'https://commons.wikimedia.org'};
-   data.sections.modelfotos=plate==='CD456E'?[]:[{id:photoId,image_url:'/api/photo/'+photoId,make:'VOLKSWAGEN',model:'GOLF GTE',color:'BLAUW',artist:'Voorbeeldauteur',licence:'CC BY-SA 4.0',licence_url:'https://creativecommons.org/licenses/by-sa/4.0/',file_url:'https://commons.wikimedia.org/wiki/File:Test.jpg'}];
-   data.source_status={modelfotos:{status:data.sections.modelfotos.length?'available':'unavailable',row_count:data.sections.modelfotos.length,reason:data.sections.modelfotos.length?'Voorbeeldfoto gevonden.':'Geen passende foto beschikbaar.'}};
+   data.sections.modelfotos=plate==='CD456E'||!data.selection.model_slug?[]:[{id:photoId,image_url:'/api/photo/'+photoId,make:'VOLKSWAGEN',model:'GOLF GTE',color:'BLAUW',match_version:2,generation_match:'VII facelift',artist:'Voorbeeldauteur',licence:'CC BY-SA 4.0',licence_url:'https://creativecommons.org/licenses/by-sa/4.0/',file_url:'https://commons.wikimedia.org/wiki/File:Test.jpg'}];
+   data.source_status={modelfotos:{status:data.sections.modelfotos.length?'available':'unavailable',row_count:data.sections.modelfotos.length,reason:data.sections.modelfotos.length?'Voorbeeldfoto gevonden.':plate==='CD456E'?'Geen passende foto beschikbaar.':'Foto niet beschikbaar: kies eerst het juiste model en de generatie bij Aanvullende bronnen.'}};
    data.sections.nl_teruggeroepen=[{referentiecode:'MGP123',defect:'Nederlands voorbeelddefect'}];
-   data.sections.eu_model=data.selection.model_slug?[{catalogus_meta:{license:'CC BY 4.0'},model:{slug:data.selection.model_slug,generatie:'VII facelift',specs:{kofferbak_liter:272}}}]:[];
+   data.sections.eu_model=data.selection.model_slug?[{catalogus_meta:{license:'CC BY 4.0'},model:{merk:'VOLKSWAGEN',model:'Golf GTE',slug:data.selection.model_slug,generatie:'VII facelift',specs:{kofferbak_liter:272}}}]:[];
    data.sections.eu_registraties=data.selection.eea_enabled?Array.from({length:60},(_,i)=>({ID:i+1,MS:'NL',Year:2021,Ewltp:123})):[];
    if(plate==='CD456E'){data.sections.brandstof=null;data.sections.gebreken=[];data.sections.terugroepstatus=[];data.sections.terugroepdetails=[];data.warnings=['Brandstof kon niet worden opgehaald.'];}
    await route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
@@ -46,11 +46,7 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
   await page.fill('#plate','AB-123-C');await page.click('#submit');await page.waitForSelector('#result:not([hidden])');
   assert.equal(await page.locator('#vehicle-title').textContent(),'VOLKSWAGEN GOLF GTE');
   assert.equal(await page.locator('.stat').count(),8);
-  await page.locator('#vehicle-photos img').waitFor();await page.waitForFunction(()=>document.querySelector('#vehicle-photos img').naturalWidth>0);
-  assert((await page.locator('#vehicle-photos').textContent()).includes('Voorbeeldauteur'));
-  await page.click('#tab-fotos');assert((await page.locator('#details').textContent()).includes('CC BY-SA 4.0'));
-  await page.route('**/api/photo/**',route=>route.fulfill({status:503,body:'unavailable'}));await page.click('#tab-overzicht');await page.click('#tab-fotos');await page.locator('#details .photo-card img').evaluate(img=>img.src+='?failure=1');await page.getByText('Foto tijdelijk niet beschikbaar.',{exact:true}).waitFor();await page.unroute('**/api/photo/**');await page.route('**/api/photo/**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aE1sAAAAASUVORK5CYII=','base64')}));
-
+  assert.equal(await page.locator('#vehicle-photos img').count(),0);assert((await page.locator('#vehicle-photos').textContent()).includes('kies eerst'));await page.locator('#vehicle-photos').getByRole('button',{name:'Model/generatie kiezen',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#eu-model').disabled);await page.click('#tab-overzicht');
   await page.click('#favorite');assert.equal(await page.locator('#favorite').textContent(),'★ Bewaard');
   await page.click('#tab-energie');assert((await page.locator('#details').textContent()).includes('62 km'));
   assert((await page.locator('#details').textContent()).includes('ca. 150 pk'));
@@ -65,6 +61,12 @@ function fixture(plate) {return {plate,schema_version:3,fetched_at:Date.now()/10
   await page.selectOption('#eu-model','volkswagen-golf7-gte-2018');await page.getByRole('button',{name:'Modelgegevens ophalen',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#tab-aanvullend')?.getAttribute('aria-selected')==='true'&&document.querySelector('#details').textContent.includes('kofferbak_liter'));
   await page.waitForFunction(()=>document.querySelector('#eu-model')?.value==='volkswagen-golf7-gte-2018'&&!document.querySelector('#eu-model').disabled);
+  await page.locator('#vehicle-photos img').waitFor();await page.waitForFunction(()=>document.querySelector('#vehicle-photos img').naturalWidth>0);
+  assert((await page.locator('#vehicle-photos').textContent()).includes('Voorbeeldauteur'));
+  await page.click('#tab-fotos');assert((await page.locator('#details').textContent()).includes('CC BY-SA 4.0'));
+  await page.route('**/api/photo/**',route=>route.fulfill({status:503,body:'unavailable'}));await page.click('#tab-overzicht');await page.click('#tab-fotos');await page.locator('#details .photo-card img').evaluate(img=>img.src+='?failure=1');await page.getByText('Foto tijdelijk niet beschikbaar.',{exact:true}).waitFor();await page.unroute('**/api/photo/**');await page.route('**/api/photo/**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aE1sAAAAASUVORK5CYII=','base64')}));
+
+  await page.click('#tab-aanvullend');await page.waitForFunction(()=>!document.querySelector('#eu-model').disabled);
   assert.equal(await page.locator('#eea-enabled').isChecked(),false);
   await page.check('#eea-enabled');await page.getByRole('button',{name:'EEA-keuze opslaan',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#tab-aanvullend')?.getAttribute('aria-selected')==='true'&&document.querySelector('#details').textContent.includes('50/60 zichtbaar'));

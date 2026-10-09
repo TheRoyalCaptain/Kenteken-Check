@@ -1,4 +1,4 @@
-# Kenteken Check — 0.5.0
+# Kenteken Check — 0.5.1
 
 Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
 
@@ -15,15 +15,15 @@ Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaar
 
 ## Voorbeeldfoto’s van model en kleur
 
-Boven het overzicht en in **Foto’s** verschijnen maximaal vier herbruikbare Wikimedia Commons-foto’s. De zoekopdracht gebruikt merk, volledige handelsbenaming en eerste RDW-kleur; kenteken en VIN worden niet naar Commons verstuurd. De app controleert merk, model en kleur in beschrijving en categorieën en toont geen andere kleur als vervanging. Bij ontbrekende gegevens, geen passende zoekresultaten of een bronstoring verschijnt de reden in de bronstatus.
+Boven het overzicht en in **Foto’s** verschijnen maximaal vier herbruikbare Wikimedia Commons-foto’s. De zoekopdracht gebruikt merk, volledige handelsbenaming en eerste RDW-kleur; kenteken en VIN worden niet naar Commons verstuurd. Kies eerst het juiste model en de generatie bij **Aanvullende bronnen** of via **Model/generatie kiezen**. De app vereist een ondersteunde generatiecode (Romeins nummer of chassiscode) en controleert merk, volledige modelnaam en die generatie samen in één bronlabel, plus de kleur in bronmetadata en toont geen andere kleur als vervanging. Bij ontbrekende gegevens, geen passende zoekresultaten of een bronstoring verschijnt de reden in de bronstatus.
 
-Het zijn voorbeeldauto’s, geen foto’s van het opgezochte kenteken. De match gebruikt bronmetadata, geen visuele herkenning. Generatie, carrosserie, uitvoering en exacte lak kunnen afwijken; RDW geeft een brede kleurcategorie, geen lakcode. Een gekozen Europese generatie wordt extra gecontroleerd wanneer een Romeins generatienummer beschikbaar is. Er is geen garantie dat Commons voor ieder model en elke kleur een geschikte foto heeft.
+Het zijn voorbeeldauto’s, geen foto’s van het opgezochte kenteken. De match gebruikt bronmetadata, geen visuele herkenning. De generatie is door jou gekozen en op bronmetadata gematcht. Carrosserie, uitvoering en exacte lak blijven onbevestigd; RDW geeft een brede kleurcategorie, geen lakcode. Zonder modelkeuze of ondersteunde generatiecode worden geen foto’s getoond. Facelift wordt alleen geaccepteerd wanneer de modelmetadata dit expliciet bevestigen. Bouwjaar alleen wordt niet gebruikt om een generatie te raden. Oude fotocaches uit 0.5.0 worden niet gebruikt. Er is geen garantie dat Commons voor ieder model en elke kleur een geschikte foto heeft.
 
 Elke foto vermeldt auteur, oorspronkelijke bron en licentie. Alleen ondersteunde vrije licenties worden geaccepteerd; bronmetadata blijven volledig in de gegevens en export staan. Afbeeldingen worden via de eigen server geladen. Internettoegang naar `commons.wikimedia.org`, `upload.wikimedia.org` en `thumb.wikimedia.org` is nodig. Zoekresultaten worden 24 uur lokaal gecachet; thumbnails worden lokaal bewaard. **Vernieuwen** ververst voertuiggegevens, maar respecteert deze fotocache. De kleine voorbeeldgalerij is geen volledige foto- of advertentiehistorie.
 
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.5.0**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.5.1**. Herlaad de pagina na de update. Poort: 8767.
 
 De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
@@ -35,7 +35,7 @@ Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuig
 
 De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
 
-## Aanvullende Nederlandse en Europese bronnen (0.5.0)
+## Aanvullende Nederlandse en Europese bronnen (0.5.1)
 
 De app gebruikt Nederlandse en Europese voertuiggegevens. Wikimedia Commons levert daarnaast herbruikbare voorbeeldfoto’s. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
 

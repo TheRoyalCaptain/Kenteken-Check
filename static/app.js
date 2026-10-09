@@ -259,16 +259,17 @@ async function applySupplemental(selection){
 
 function photoView(compact=false){
   const box=element('section',undefined,compact?'photo-strip':'photo-section');
-  box.append(element('h2','Voorbeeldfoto’s · hetzelfde model en kleur'));
-  const rows=current.sections.modelfotos||[];
+  box.append(element('h2','Voorbeeldfoto’s · model, generatie en kleur'));
+  const choose=element('button','Model/generatie kiezen','secondary');choose.addEventListener('click',()=>{activeTab='aanvullend';$('field-query').value='';$('details').setAttribute('aria-labelledby','tab-aanvullend');renderDetails();$('details').scrollIntoView({block:'start'});});box.append(choose);
+  const rows=(current.sections.modelfotos||[]).filter(photo=>photo.match_version===2&&photo.generation_match);
   if(!rows.length){box.append(element('p',sourceState('modelfotos').reason||'Geen passende foto beschikbaar.','empty'));return box;}
-  box.append(element('p','Voorbeeldauto, niet dit kenteken. Match op bronmetadata; generatie, uitvoering en exacte lak kunnen afwijken.','photo-note'));
+  box.append(element('p','Voorbeeldauto, niet dit kenteken. Gekozen generatie gematcht op bronmetadata; exacte lak en overige details zijn niet bevestigd.','photo-note'));
   const gallery=element('div',undefined,'photo-gallery');
   for(const photo of rows){
     if(!/^\/api\/photo\/[a-f0-9]{64}$/.test(photo.image_url||''))continue;
     const figure=element('figure',undefined,'photo-card'),img=element('img');img.src=photo.image_url;img.alt=[photo.make,photo.model,photo.color,'· voorbeeldauto'].filter(Boolean).join(' ');img.loading='lazy';img.decoding='async';
     img.addEventListener('error',()=>{img.hidden=true;figure.prepend(element('p','Foto tijdelijk niet beschikbaar.','empty'));},{once:true});
-    const caption=element('figcaption');caption.append(element('strong',[photo.model,photo.color].join(' · ')),element('span','Foto: '+photo.artist));
+    const caption=element('figcaption');caption.append(element('strong',[photo.model,photo.generation_match,photo.color].join(' · ')),element('span','Foto: '+photo.artist));
     const links=element('span');
     for(const [label,url,host]of [[photo.licence,photo.licence_url,'creativecommons.org'],['Wikimedia Commons',photo.file_url,'commons.wikimedia.org']]){
       try{const parsed=new URL(url);if(parsed.protocol!=='https:'||parsed.hostname!==host)continue;const a=element('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';links.append(a,' · ');}catch{}

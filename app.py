@@ -42,7 +42,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -79,7 +79,7 @@ def fetch_rows(dataset, label, filters):
     for offset in itertools.count(0, 1000):
         params = dict(filters, **{'$limit': 1000, '$offset': offset})
         url = f'https://opendata.rdw.nl/resource/{dataset}.json?' + urlencode(params)
-        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.5.0', 'Accept': 'application/json'})
+        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.5.1', 'Accept': 'application/json'})
         try:
             with urlopen(request, timeout=12) as response:
                 raw = response.read(4_000_001)
@@ -152,7 +152,7 @@ def fetch_external(key, plate):
         return [], 'Een persoonlijke API-sleutel ontbreekt; deze externe bron is niet aangesloten.'
     suffix, label = EXTERNALS[key]
     request = Request(f'https://123kentekencheck.nl/api/v1/kenteken/{plate}{suffix}',
-                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.5.0', 'Accept': 'application/json'})
+                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.5.1', 'Accept': 'application/json'})
     try:
         with urlopen(request, timeout=12) as response:
             raw = response.read(4_000_001)
@@ -366,7 +366,7 @@ def application(environ, start_response):
         if method not in ('GET', 'HEAD'):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.5.0"}'
+            body = b'{"status":"ok","version":"0.5.1"}'
         elif path.startswith('/api/photo/'):
             try: body, content_type = photos.media(path.removeprefix('/api/photo/'), DATA)
             except FileNotFoundError as exc: raise LookupError(str(exc), 404) from exc

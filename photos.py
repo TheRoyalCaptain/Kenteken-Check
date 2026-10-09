@@ -18,8 +18,11 @@ COLORS = {'BLAUW':('blue','blauw','blau','bleu'), 'ROOD':('red','rood','rot','ro
           'GEEL':('yellow','geel','gelb','jaune'), 'ORANJE':('orange','oranje'),
           'BRUIN':('brown','bruin','braun','marron'), 'BEIGE':('beige',), 'PAARS':('purple','paars','violet'),
           'ROSE':('pink','rose','roze'), 'ROZE':('pink','rose','roze')}
+MATCH_VERSION = 2
+GENERATION_PATTERN = r'\b(?:VIII|VII|VI|IV|III|II|IX|V|I|X|[A-Z][0-9]{2,3})\b'
+
 SOURCE = {'label':'Voorbeeldfoto’s · model en kleur','provider':'Wikimedia Commons','url':'https://commons.wikimedia.org',
-          'scope':'extern','fields':{},'note':'Voorbeeldauto, geen foto van dit kenteken. Model en kleur zijn gematcht op bronmetadata; uitvoering en generatie kunnen afwijken. Auteur en licentie staan bij elke foto.'}
+          'scope':'extern','fields':{},'note':'Voorbeeldauto, geen foto van dit kenteken. Model en kleur zijn gematcht op bronmetadata; Generatie moet expliciet gekozen zijn en in de fotometadata overeenkomen; exacte lak en overige details blijven onbevestigd. Auteur en licentie staan bij elke foto.'}
 
 def text(value):
     return html.unescape(re.sub(r'<[^>]*>', '', str(value))).strip()
@@ -40,7 +43,7 @@ def safe_url(value, hosts):
 
 def request(url, limit):
     try:
-        with urlopen(Request(url,headers={'User-Agent':'KentekenCheck/0.5.0 (https://github.com/TheRoyalCaptain/Kenteken-Check)','Accept':'application/json, image/jpeg, image/png, image/webp'}),timeout=12) as response:
+        with urlopen(Request(url,headers={'User-Agent':'KentekenCheck/0.5.1 (https://github.com/TheRoyalCaptain/Kenteken-Check)','Accept':'application/json, image/jpeg, image/png, image/webp'}),timeout=12) as response:
             data=response.read(limit+1);mime=response.headers.get_content_type()
         if len(data)>limit: raise ValueError('Response too large')
         return data,mime
@@ -55,16 +58,31 @@ def read_json(url):
 def match(page, make, model, color, generation=''):
     info=(page.get('imageinfo') or [{}])[0];meta=info.get('extmetadata',{})
     values=lambda key:text(meta.get(key,{}).get('value',''))
-    identity=' '.join([page.get('title',''),values('ImageDescription'),values('ObjectName')])
-    categories=' '.join(row.get('title','') for row in page.get('categories',[]))+' '+values('Categories')
+    # Match individual labels, never assemble a vehicle identity from unrelated categories.
+    labels=[page.get('title',''),values('ImageDescription'),values('ObjectName')]
+    labels += [row.get('title','') for row in page.get('categories',[])]
+    labels += values('Categories').split('|')
+    identity=' '.join(labels[:3])
     make_names=[make]
     if make.upper()=='VOLKSWAGEN':make_names.append('VW')
-    if not any(contains(identity,name) or contains(categories,name) for name in make_names):return None
-    # Keep trim tokens (e.g. GTE) and model numbers; no fuzzy nearest-model substitution.
-    if not contains(identity,model):return None
-    if not any(contains(identity,term) or contains(categories,term) for term in COLORS[color]):return None
+    if not generation:return None
+    requested=re.search(GENERATION_PATTERN,generation)
+    if not requested:return None
+    code=requested.group(0)
+    candidates=[]
+    for label in labels:
+        if not any(contains(label,name) for name in make_names):continue
+        stripped=re.sub(GENERATION_PATTERN,' ',text(label))
+        if not contains(stripped,model):continue
+        codes=set(re.findall(GENERATION_PATTERN,text(label)))
+        # A comparison or contradictory metadata must not confirm a generation.
+        if codes and codes != {code}:return None
+        if codes=={code}:candidates.append(label)
+    if not candidates:return None
+    if contains(generation,'facelift') and not any(contains(label,'facelift') for label in candidates):return None
+    if any(contains(label,'facelift') for label in candidates) and not contains(generation,'facelift'):return None
+    if not any(contains(label,term) for label in labels for term in COLORS[color]):return None
     if any(contains(identity,term) for term in ('interior','dashboard','engine','wheel','interieur','motorraum')):return None
-    if generation and not contains(identity+' '+categories,generation):return None
     licence=values('LicenseShortName');licence_url=meta.get('LicenseUrl',{}).get('value','')
     accepted=licence in ('CC0','Public domain','Public Domain','CC0 1.0') or bool(re.fullmatch(r'CC BY(?:-SA)? [1-4]\.0',licence))
     if not accepted or values('Restrictions'):return None
@@ -79,20 +97,22 @@ def match(page, make, model, color, generation=''):
     return {'id':ident,'image_url':'/api/photo/'+ident,'thumbnail_source_url':thumbnail,'file_url':file_url,
             'title':text(page.get('title','')).removeprefix('File:'),'description':values('ImageDescription'),
             'artist':artist,'credit':values('Credit'),'licence':licence,'licence_url':licence_url,
-            'make':make,'model':model,'color':color,'generation_match':generation or None,
-            'match_basis':'Merk, model en kleur in bronmetadata; geen visuele verificatie of individuele voertuigidentificatie.',
+            'make':make,'model':model,'color':color,'generation_match':generation,'match_version':MATCH_VERSION,
+            'match_basis':'Merk, volledig model, gekozen generatie en kleur in bronmetadata; geen visuele verificatie of individuele voertuigidentificatie.',
             'original_metadata':meta,'source_categories':page.get('categories',[])}
 
 def find(vehicle, model_rows, directory):
     make,model,color=(str(vehicle.get(key,'')).strip() for key in ('merk','handelsbenaming','eerste_kleur'))
     if not make or not model or color not in COLORS:return [],'Merk, model of een bruikbare RDW-kleur ontbreekt; geen passende foto beschikbaar.'
     if len(make)>100 or len(model)>100:return [],'Modelnaam is niet bruikbaar voor fotozoeken.'
-    generation=''
-    if model_rows:
-        selected=model_rows[0].get('model',{})
-        found=re.search(r'\b(VIII|VII|VI|IV|III|II|IX|V|I)\b',str(selected.get('generatie','')))
-        if found and contains(model,selected.get('model','')):generation=found.group(0)
-    terms=(make,model,color,generation)
+    if not model_rows:return [],'Foto niet beschikbaar: kies eerst het juiste model en de generatie bij Aanvullende bronnen.'
+    selected=model_rows[0].get('model',{})
+    if str(selected.get('merk','')).strip().casefold()!=make.casefold() or not contains(model,selected.get('model','')):
+        return [],'Foto niet beschikbaar: het gekozen model komt niet overeen met het RDW-model.'
+    generation=str(selected.get('generatie','')).strip()
+    if not re.search(GENERATION_PATTERN,generation):
+        return [],'Foto niet beschikbaar: de gekozen generatie heeft geen ondersteunde generatiecode voor een betrouwbare fotomatch.'
+    terms=(MATCH_VERSION,make,model,color,generation)
     folder=Path(directory)/'photos';folder.mkdir(parents=True,exist_ok=True)
     cache=folder/('query-'+hashlib.sha256(json.dumps(terms).encode()).hexdigest()+'.json')
     if cache.exists():
@@ -112,7 +132,7 @@ def find(vehicle, model_rows, directory):
             rows.append(row)
             target=folder/(row['id']+'.json');target.write_text(json.dumps(row,ensure_ascii=False))
         if len(rows)==4:break
-    reason='Voorbeeldfoto’s met overeenkomend model en kleur in de bronmetadata gevonden.' if rows else 'Geen herbruikbare foto met dit model en deze kleur in de gecontroleerde zoekresultaten gevonden. Er wordt geen andere kleur ingevuld.'
+    reason='Voorbeeldfoto’s met overeenkomend model, gekozen generatie en kleur in de bronmetadata gevonden.' if rows else 'Geen herbruikbare foto met dit model, de gekozen generatie en deze kleur in de gecontroleerde zoekresultaten gevonden. Er wordt geen andere kleur ingevuld.'
     temp=cache.with_name(cache.stem+'-'+str(time.time_ns())+'.tmp');temp.write_text(json.dumps({'fetched_at':time.time(),'rows':rows,'reason':reason},ensure_ascii=False));temp.replace(cache)
     return rows,reason
 

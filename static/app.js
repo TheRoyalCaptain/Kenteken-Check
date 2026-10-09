@@ -7,6 +7,7 @@ function element(tag, text, cls) {
   return n;
 }
 const LABELS = {
+  vin_wmi:'WMI',vin:'VIN / chassisnummer',wmi:'WMI · posities 1–3',posities_4_8:'Posities 4–8',positie_9:'Positie 9',vis_posities_10_17:'VIS · posities 10–17',positie_10:'Positie 10',positie_11:'Positie 11',laatste_vier_numeriek:'Laatste vier tekens numeriek',formaat:'Invoerformaat',interpretatie:'Wat deze controle betekent',
   testedModel:'Geteste uitvoering',ratingYear:'Testjaar',nicePublicationDate:'Publicatie',starRating:'Veiligheidssterren',adultOccupant_percent:'Volwassen inzittenden (%)',childOccupant_percent:'Kinderen (%)',vulnerableRoadUsers_percent:'Kwetsbare weggebruikers (%)',safetyAssist_percent:'Veiligheidsassistentie (%)',
   vervaldatum_apk:'APK geldig tot', datum_eerste_toelating:'Eerste toelating', datum_eerste_tenaamstelling_in_nederland:'Eerste registratie Nederland', datum_tenaamstelling:'Laatste tenaamstelling',
   wam_verzekerd:'WAM-verzekerd', openstaande_terugroepactie_indicator:'Openstaande terugroepactie', export_indicator:'Export geregistreerd', taxi_indicator:'Taxi geregistreerd',
@@ -263,7 +264,7 @@ const reportMenus=new Map();
 function reportView(){
  const box=element('div');box.append(element('p','Modelrapporten beschrijven een geteste uitvoering. Controleer generatie, motor en uitrusting voordat je een rapport koppelt. Eigen PDF’s blijven lokaal bewaard.','notice'));
  const grid=element('div',undefined,'panel-grid');
- for(const [key,title]of reportSources){
+ for(const [key,title]of (current.lookup_type==='vin'?[]:reportSources)){
   const p=panel(title),form=element('form',undefined,'source-form'),select=element('select'),input=element('input'),status=element('p','Kandidaten ophalen…','empty');select.setAttribute('aria-label',title+' rapportkandidaten');select.append(element('option','Kies een kandidaat of plak een directe link'));
   select.firstChild.value='';input.type='url';input.placeholder='Directe modelrapportlink (https://…)';input.setAttribute('aria-label',title+' rapportlink');input.value=current.selection?.report_urls?.[key]||'';select.addEventListener('change',()=>{if(select.value)input.value=select.value;});
   const confirm=element('input');confirm.type='checkbox';confirm.required=true;const label=element('label','Ik heb generatie, motor en uitrusting in het originele rapport gecontroleerd.');label.prepend(confirm);
@@ -308,11 +309,18 @@ function photoView(compact=false){
   box.append(gallery);if(!compact)box.append(rawPanel('modelfotos'));return box;
 }
 
+function vinOverview(){
+ const box=element('div');box.append(element('p','De VIN-opbouw wordt lokaal gecontroleerd. Dit bewijst niet dat het voertuig bestaat en levert geen volledige historie. RDW Open Data kan hier geen Nederlands kenteken bij zoeken.','notice'));
+ const grid=element('div',undefined,'panel-grid');grid.append(rawPanel('vin_structuur'),rawPanel('vin_decoder'));box.append(grid);
+ const p=panel('Optionele Europese VIN-decodering'),form=element('form',undefined,'source-form'),check=element('input'),label=element('label','Ik wil dit VIN naar Vincario versturen voor decodering. Dit kan leveranciersquota of betaald tegoed gebruiken.');check.type='checkbox';check.id='vin-decode-enabled';check.checked=!!current.selection?.vin_decode_enabled;label.prepend(check);const submit=element('button','VIN-bronkeuze opslaan');submit.type='submit';form.append(label,submit);form.addEventListener('submit',e=>{e.preventDefault();search(current.vin,true,{vin_decode_enabled:check.checked});});p.append(form);note(p,current.vin_provider_enabled?'Provider ingesteld. Er wordt alleen na inschakelen een aanvraag verstuurd.':'Niet beschikbaar: de server heeft geen VINCARIO_API_KEY en VINCARIO_SECRET_KEY. De lokale VIN-check werkt zonder sleutel.');box.append(p);
+ const unavailable=panel('Beschikbaarheid historie');for(const [key,source]of Object.entries(current.sources).filter(([,row])=>row.scope==='historie')){const row=element('div',undefined,'record');row.append(element('strong',source.label),element('p',sourceState(key).reason,'empty'));unavailable.append(row);}box.append(unavailable);return box;
+}
+
 function renderDetails(){
   if(!current)return;
   const query=$('field-query').value.trim().toLowerCase(),out=$('details');out.replaceChildren();
   if(query)out.append(allView(query));
-  else if(activeTab==='overzicht')out.append(overview());
+  else if(activeTab==='overzicht')out.append(current.lookup_type==='vin'?vinOverview():overview());
   else if(activeTab==='rapporten')out.append(reportView());
   else if(activeTab==='fotos')out.append(photoView());
   else if(activeTab==='energie')out.append(energyView());
@@ -327,43 +335,46 @@ function renderDetails(){
   for(const b of $('tabs').children){b.classList.toggle('active',!query&&b.dataset.key===activeTab);b.setAttribute('aria-selected',String(!query&&b.dataset.key===activeTab));}
 }
 function render(){
-  const v=vehicle(),days=apkDays(v);$('welcome').hidden=true;$('result').hidden=false;$('result-plate').textContent=current.plate;
-  $('vehicle-title').textContent=[v.merk,v.handelsbenaming].filter(Boolean).join(' ')||'Geen actuele voertuigregistratie beschikbaar';
+  const v=vehicle(),isVin=current.lookup_type==='vin',days=apkDays(v);$('welcome').hidden=true;$('result').hidden=false;$('result-plate').textContent=current.plate;
+  $('result-plate').classList.toggle('vin-identifier',isVin);$('vehicle-title').textContent=isVin?['VIN-check',v.merk,v.handelsbenaming].filter(Boolean).join(' · '):[v.merk,v.handelsbenaming].filter(Boolean).join(' ')||'Geen actuele voertuigregistratie beschikbaar';
   $('vehicle-subtitle').textContent=[v.inrichting,v.eerste_kleur,v.datum_eerste_toelating?.slice(0,4)].filter(Boolean).join(' · ');
   $('timestamp').textContent='Opgehaald '+new Date(current.fetched_at*1000).toLocaleString('nl-NL')+(current.cached?' · cache':' · bijgewerkt');
   const states=Object.keys(current.sources).map(sourceState),available=states.filter(x=>x.status==='available').length,unavailable=states.filter(x=>x.status==='unavailable').length,errors=states.filter(x=>x.status==='error').length;
   $('coverage').textContent=`${available} beschikbaar · ${unavailable} niet beschikbaar · ${errors} mislukt`;
-  const alerts=$('alerts');alerts.replaceChildren();if(!current.sections.voertuig?.length)alerts.append(element('p','De actuele basisregistratie is niet beschikbaar. Andere bronnen en opgeslagen historie blijven hieronder zichtbaar.','notice'));for(const warning of current.warnings)alerts.append(element('p',warning,'warning'));
+  const alerts=$('alerts');alerts.replaceChildren();if(!isVin&&!current.sections.voertuig?.length)alerts.append(element('p','De actuele basisregistratie is niet beschikbaar. Andere bronnen en opgeslagen historie blijven hieronder zichtbaar.','notice'));for(const warning of current.warnings)alerts.append(element('p',warning,'warning'));
   if(v.openstaande_terugroepactie_indicator==='Ja')alerts.append(element('p','Openstaande terugroepactie gemeld. Bekijk het tabblad Terugroepacties.','warning'));
   if(v.tellerstandoordeel==='Onlogisch')alerts.append(element('p','Het RDW-tellerstandoordeel is onlogisch.','warning'));
   if(days!==null&&days<0)alerts.append(element('p','De geregistreerde APK-vervaldatum is verstreken.','warning'));
   else if(days!==null&&days<=30)alerts.append(element('p',days===0?'De APK-vervaldatum is vandaag.':`De APK-vervaldatum is over ${days} dagen.`,'warning'));
-  const stats=[['APK geldig tot',format('vervaldatum_apk',v.vervaldatum_apk),days===null?'':days<0?'tone-bad':days<=30?'tone-warn':''],['Brandstof',fuelText(),''],['Tellerstandoordeel',v.tellerstandoordeel||'—',v.tellerstandoordeel==='Onlogisch'?'tone-bad':''],['WAM-verzekerd',v.wam_verzekerd||'—',''],['Terugroepactie',v.openstaande_terugroepactie_indicator||'—',v.openstaande_terugroepactie_indicator==='Ja'?'tone-warn':''],['Import',importText(v),''],['Rijklaargewicht',format('massa_rijklaar',v.massa_rijklaar),''],['Trekgewicht geremd',format('maximum_trekken_massa_geremd',v.maximum_trekken_massa_geremd),'']];
+  const stats=isVin?[['VIN-formaat','17 tekens',''],['WMI',current.sections.vin_structuur?.[0]?.wmi||'—',''],['Decoder',sourceState('vin_decoder').status==='available'?'Beschikbaar':'Niet beschikbaar',''],['Bronnen',String(available)+' beschikbaar','']]:[['APK geldig tot',format('vervaldatum_apk',v.vervaldatum_apk),days===null?'':days<0?'tone-bad':days<=30?'tone-warn':''],['Brandstof',fuelText(),''],['Tellerstandoordeel',v.tellerstandoordeel||'—',v.tellerstandoordeel==='Onlogisch'?'tone-bad':''],['WAM-verzekerd',v.wam_verzekerd||'—',''],['Terugroepactie',v.openstaande_terugroepactie_indicator||'—',v.openstaande_terugroepactie_indicator==='Ja'?'tone-warn':''],['Import',importText(v),''],['Rijklaargewicht',format('massa_rijklaar',v.massa_rijklaar),''],['Trekgewicht geremd',format('maximum_trekken_massa_geremd',v.maximum_trekken_massa_geremd),'']];
   const summary=$('summary');summary.replaceChildren();for(const [title,value,tone]of stats){const s=element('div',undefined,'stat');s.append(element('small',title),element('strong',value,tone));if(title==='Import')s.title='Afgeleid: eerste registratie Nederland is later dan eerste toelating.';summary.append(s);}
-  $('vehicle-photos').replaceChildren(photoView(true));
-  $('tabs').replaceChildren();for(const [key,title]of TABS){const b=element('button',title);b.dataset.key=key;b.setAttribute('role','tab');b.id='tab-'+key;b.setAttribute('aria-controls','details');b.addEventListener('click',()=>{activeTab=key;$('field-query').value='';$('details').setAttribute('aria-labelledby',b.id);renderDetails();b.scrollIntoView({block:'nearest',inline:'nearest'});});$('tabs').append(b);}
+  $('vehicle-photos').replaceChildren(...(isVin?[]:[photoView(true)]));
+  $('tabs').replaceChildren();for(const [key,title]of (isVin?[['overzicht','VIN-overzicht'],['rapporten','Eigen rapporten'],['historie','Waarnemingen'],['bronnen','Bronnen'],['alle','Alle ontvangen data']]:TABS)){const b=element('button',title);b.dataset.key=key;b.setAttribute('role','tab');b.id='tab-'+key;b.setAttribute('aria-controls','details');b.addEventListener('click',()=>{activeTab=key;$('field-query').value='';$('details').setAttribute('aria-labelledby',b.id);renderDetails();b.scrollIntoView({block:'nearest',inline:'nearest'});});$('tabs').append(b);}
   activeTab='overzicht';$('field-query').value='';$('details').setAttribute('aria-labelledby','tab-overzicht');renderDetails();favoriteButton();
 }
-async function search(plate,refresh=false,selection=undefined){
+async function search(plate,refresh=false,selection=undefined,mode=undefined){
+  const useVin=mode==='vin'||(mode===undefined&&String(plate).replace(/\s/g,'').length===17);$('lookup-mode').value=useVin?'vin':'plate';updateSearchMode();
   const id=++requestId;$('submit').disabled=true;$('refresh').disabled=true;$('result').hidden=true;$('welcome').hidden=true;current=null;message('Voertuiggegevens ophalen…');$('plate').value=plate;
   const params=new URLSearchParams();if(refresh)params.set('refresh','1');if(selection!==undefined)params.set('selection',JSON.stringify(selection));
-  try{const response=await fetch('/api/vehicle/'+encodeURIComponent(plate)+(params.size?'?'+params.toString():''));const data=await response.json();if(id!==requestId)return;if(!response.ok)throw new Error(data.error||'De gegevens konden niet worden opgehaald.');
+  try{const response=await fetch((useVin?'/api/vin/':'/api/vehicle/')+encodeURIComponent(plate)+(params.size?'?'+params.toString():''));const data=await response.json();if(id!==requestId)return;if(!response.ok)throw new Error(data.error||'De gegevens konden niet worden opgehaald.');
     current=data;recent=[data.plate,...recent.filter(x=>x!==data.plate)].slice(0,8);saveList('kc-recent',recent);garage();render();message('');
   }catch(e){if(id===requestId){message(e.message||'Geen verbinding met de app.','error');$('welcome').hidden=false;}}
   finally{if(id===requestId){$('submit').disabled=false;$('refresh').disabled=false;}}
 }
-function compareValue(data,key){const v=data.sections.voertuig?.[0]||{};if(key==='brandstof')return data.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';if(key==='import')return importText(v);return format(key,v[key]);}
+function compareValue(data,key){if(key==='vin_wmi')return data.sections.vin_structuur?.[0]?.wmi||'—';const v=data.sections.voertuig?.[0]||{};if(key==='brandstof')return data.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';if(key==='import')return importText(v);return format(key,v[key]);}
 function renderComparison(){
   $('comparison').hidden=false;$('comparison-hint').hidden=comparisons.length===2;const wrap=$('comparison-content');wrap.replaceChildren();
   const t=element('table'),head=element('tr');head.append(element('th','Gegeven'));comparisons.forEach(x=>head.append(element('th',x.plate)));t.append(head);
-  for(const key of ['merk','handelsbenaming','datum_eerste_toelating','brandstof','vervaldatum_apk','import','massa_rijklaar','maximum_trekken_massa_geremd','catalogusprijs','tellerstandoordeel']){const row=element('tr');row.append(element('th',label(key)));comparisons.forEach(x=>row.append(element('td',compareValue(x,key))));t.append(row);}wrap.append(t);
+  for(const key of [...(comparisons.some(x=>x.lookup_type==='vin')?['vin_wmi']:[]),'merk','handelsbenaming','datum_eerste_toelating','brandstof','vervaldatum_apk','import','massa_rijklaar','maximum_trekken_massa_geremd','catalogusprijs','tellerstandoordeel']){const row=element('tr');row.append(element('th',label(key)));comparisons.forEach(x=>row.append(element('td',compareValue(x,key))));t.append(row);}wrap.append(t);
 }
-$('search').addEventListener('submit',e=>{e.preventDefault();search($('plate').value);});
+function updateSearchMode(){const isVin=$('lookup-mode').value==='vin';document.querySelector('.plate-input .nl').textContent=isVin?'VIN':'★\nNL';$('plate').maxLength=isVin?24:12;$('plate').placeholder=isVin?'17 tekens · VIN':'AB-123-C';$('identifier-label').textContent=isVin?'VIN / chassisnummer':'Nederlands kenteken';$('plate').closest('.plate-input').classList.toggle('vin-input',isVin);$('lookup-meta').textContent=isVin?'VIN-opbouw · Bronstatus · Eigen rapporten':'Registratie · Techniek · Keuringen · Terugroepacties';}
+$('lookup-mode').addEventListener('change',()=>{updateSearchMode();$('plate').value='';$('plate').focus();});
+$('search').addEventListener('submit',e=>{e.preventDefault();search($('plate').value,false,undefined,$('lookup-mode').value);});
 $('refresh').addEventListener('click',()=>{if(current)search(current.plate,true);});
 $('field-query').addEventListener('input',renderDetails);
 $('tabs').addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const tabs=[...$('tabs').children],i=tabs.indexOf(document.activeElement);if(i<0)return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next].focus();tabs[next].click();});
 $('favorite').addEventListener('click',()=>{if(!current)return;const p=current.plate;favorites=favorites.includes(p)?favorites.filter(x=>x!==p):[p,...favorites].slice(0,30);saveList('kc-favorites',favorites);garage();favoriteButton();});
-$('export').addEventListener('click',()=>{if(!current)return;const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`kenteken-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+$('export').addEventListener('click',()=>{if(!current)return;const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`${current.lookup_type==='vin'?'vin':'kenteken'}-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 $('print').addEventListener('click',()=>{if(!current)return;const previous=activeTab,query=$('field-query').value;activeTab='overzicht';$('field-query').value='';renderDetails();window.print();activeTab=previous;$('field-query').value=query;renderDetails();});
 $('compare').addEventListener('click',()=>{if(!current)return;comparisons=[...comparisons.filter(x=>x.plate!==current.plate),current].slice(-2);renderComparison();$('comparison').scrollIntoView({behavior:'smooth'});});
 $('history-export').addEventListener('click',async()=>{if(!current)return;try{const response=await fetch('/api/history/'+current.plate);if(!response.ok)throw new Error('Historie kon niet worden opgehaald.');const data=await response.json(),url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`historie-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){message(e.message,'error');}});

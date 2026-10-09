@@ -4,13 +4,15 @@ services:
       APP_HOST: kenteken-check_web_1
       APP_PORT: 8080
   web:
-    image: ghcr.io/theroyalcaptain/kenteken-check:0.6.0
+    image: ghcr.io/theroyalcaptain/kenteken-check:0.7.0
     init: true
     restart: on-failure
     volumes:
       - ${APP_DATA_DIR}/data:/data
     environment:
       KENTEKEN_API_KEY: ${KENTEKEN_API_KEY:-}
+      VINCARIO_API_KEY: ${VINCARIO_API_KEY:-}
+      VINCARIO_SECRET_KEY: ${VINCARIO_SECRET_KEY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 30s

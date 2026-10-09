@@ -5,6 +5,8 @@ services:
       - "127.0.0.1:8767:8080"
     environment:
       KENTEKEN_API_KEY: ${KENTEKEN_API_KEY:-}
+      VINCARIO_API_KEY: ${VINCARIO_API_KEY:-}
+      VINCARIO_SECRET_KEY: ${VINCARIO_SECRET_KEY:-}
     volumes:
       - ./data:/data
     restart: unless-stopped

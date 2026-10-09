@@ -1,4 +1,4 @@
-# Kenteken Check — 0.6.0
+# Kenteken Check — 0.7.0
 
 Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
 
@@ -21,7 +21,7 @@ Het zijn voorbeeldauto’s, geen foto’s van het opgezochte kenteken. De match 
 
 Elke foto vermeldt auteur, oorspronkelijke bron en licentie. Alleen ondersteunde vrije licenties worden geaccepteerd; bronmetadata blijven volledig in de gegevens en export staan. Afbeeldingen worden via de eigen server geladen. Internettoegang naar `commons.wikimedia.org`, `upload.wikimedia.org` en `thumb.wikimedia.org` is nodig. Zoekresultaten worden 24 uur lokaal gecachet; thumbnails worden lokaal bewaard. **Vernieuwen** ververst voertuiggegevens, maar respecteert deze fotocache. De kleine voorbeeldgalerij is geen volledige foto- of advertentiehistorie.
 
-## Europese modelrapporten en eigen PDF’s (0.6.0)
+## Europese modelrapporten en eigen PDF’s (0.7.0)
 
 **Rapporten** koppelt openbare modelrapporten van Euro NCAP, Green NCAP en ADAC. De app zoekt kandidaten uit de openbare bronindex op merk en modelfamilie. Dit zijn kandidaten, geen automatische bevestiging van generatie, motor of uitrusting. ADAC toont een selectie recente tests, geen volledige historische catalogus. Je kunt ook een directe HTTPS-modelrapportlink van een van deze drie bronnen invoeren. Controleer het originele rapport en bevestig de uitvoering vóór koppelen. De server controleert officiële host, rapportpad en merk/modelfamilie in de titel; bij twijfel wordt geen rapport gekoppeld.
 
@@ -33,9 +33,19 @@ CARFAX en carVertical worden niet automatisch bevraagd of aangekocht. Car-Pass e
 
 De interface heeft een donkere grafietstijl met duidelijke panelen, grotere tekst, hoog contrast en leesbare mobiele statistieken. Afdrukken gebruikt een lichte weergave.
 
+## VIN / chassisnummer (0.7.0)
+
+Kies **VIN / chassisnummer** bij het zoekveld of open een bewaard VIN. De app ondersteunt moderne VIN’s van 17 letters/cijfers zonder I, O of Q. Spaties en kleine letters worden genormaliseerd; oude kortere chassisnummers worden nog niet ondersteund. VIN-resultaten hebben een eigen overzicht, bronstatussen, doorzoekbare ontvangen velden, favorieten, recente zoekopdrachten, vergelijking, JSON-export, eigen waarnemingen en lokale PDF-rapporten. VIN en kenteken blijven afzonderlijke dossiers; er wordt geen voertuig op een vergelijkbaar model gekoppeld.
+
+De gratis lokale controle toont de WMI-code, de tekenposities en het identificatiedeel. Alleen het invoerformaat wordt bevestigd, niet het bestaan van het voertuig of de toewijzing van WMI aan een fabrikant. Modeljaar, fabriek en controlecijfer worden niet volgens één universele regel gegokt. Ontbrekende schade-, kilometer-, onderhouds-, eigenaar-, diefstal- en individuele terugroepgegevens worden expliciet als niet beschikbaar gemeld. RDW Open Data levert geen openbare VIN-naar-kentekenzoekfunctie in de aangesloten datasets.
+
+Voor uitgebreide VIN-decodering is een optionele Europese leveranciersadapter beschikbaar: **Vincario / vindecoder.eu**. Zet eigen `VINCARIO_API_KEY` en `VINCARIO_SECRET_KEY` in de containeromgeving. Sleutels worden niet naar de browser gestuurd of in GitHub gezet. Open het VIN-overzicht en schakel de bron expliciet in. De volledige VIN wordt dan naar de provider verstuurd. Deze bron gebruikt proefquota of betaald tegoed en is geen onbeperkte gratis API. Zonder sleutels of zonder inschakelen wordt geen externe aanvraag verstuurd. De adapter gebruikt het gedocumenteerde SHA-1-controlegetal en decode-endpoint, controleert het teruggeleverde volledige VIN en bewaart alle ontvangen JSON-velden. De adapter is met gecontroleerde antwoorden getest; er zijn hier geen eigen leverancierssleutels voor een live betaalde/geautoriseerde proef.
+
+VIN-resultaten worden maximaal een uur gecachet; **Vernieuwen** kan bij ingeschakelde decoder opnieuw quota gebruiken. Bronkeuze wordt lokaal per VIN onthouden. Bij een providerstoring blijven de structuurcontrole en eigen documenten beschikbaar en wordt geen onvolledig resultaat gecachet. Eigen waarnemingen zijn geen gereconstrueerde geschiedenis van vóór het gebruik van de app. PDF’s blijven in `/data/reports/<VIN>/` staan. Er wordt geen VIN naar RDW, fotobronnen of modelrapportbronnen doorgestuurd vanuit de VIN-check.
+
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.6.0**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.7.0**. Herlaad de pagina na de update. Poort: 8767.
 
 De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
@@ -47,7 +57,7 @@ Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuig
 
 De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
 
-## Aanvullende Nederlandse en Europese bronnen (0.6.0)
+## Aanvullende Nederlandse en Europese bronnen (0.7.0)
 
 De app gebruikt Nederlandse en Europese voertuiggegevens. Wikimedia Commons levert daarnaast herbruikbare voorbeeldfoto’s. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
 

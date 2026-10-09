@@ -1,4 +1,5 @@
 """Kenteken Check: WSGI application with no framework dependencies."""
+import vin
 import photos
 import reports
 import base64
@@ -44,7 +45,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -67,6 +68,13 @@ def normalize(value):
         raise LookupError('Vul een Nederlands kenteken in, bijvoorbeeld AB-123-C.', 400)
     return plate
 
+def normalize_identifier(value):
+    compact=re.sub(r'\s','',value).upper()
+    if len(compact)==17:
+        try:return vin.normalize(value)
+        except ValueError as exc:raise LookupError(str(exc),400) from exc
+    return normalize(value)
+
 def database():
     DATA.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DATA / 'cache.sqlite', timeout=10)
@@ -81,7 +89,7 @@ def fetch_rows(dataset, label, filters):
     for offset in itertools.count(0, 1000):
         params = dict(filters, **{'$limit': 1000, '$offset': offset})
         url = f'https://opendata.rdw.nl/resource/{dataset}.json?' + urlencode(params)
-        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.6.0', 'Accept': 'application/json'})
+        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.7.0', 'Accept': 'application/json'})
         try:
             with urlopen(request, timeout=12) as response:
                 raw = response.read(4_000_001)
@@ -155,7 +163,7 @@ def fetch_external(key, plate):
         return [], 'Een persoonlijke API-sleutel ontbreekt; deze externe bron is niet aangesloten.'
     suffix, label = EXTERNALS[key]
     request = Request(f'https://123kentekencheck.nl/api/v1/kenteken/{plate}{suffix}',
-                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.6.0', 'Accept': 'application/json'})
+                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.7.0', 'Accept': 'application/json'})
     try:
         with urlopen(request, timeout=12) as response:
             raw = response.read(4_000_001)
@@ -264,7 +272,7 @@ def changes_between(before, after):
     return changes
 
 def history(plate, full=False):
-    plate = normalize(plate)
+    plate = normalize_identifier(plate)
     with database() as db:
         records = db.execute('SELECT id, observed, last_seen, payload FROM observations WHERE plate=? ORDER BY observed, id', (plate,)).fetchall()
     events, previous = [], {}
@@ -277,6 +285,34 @@ def history(plate, full=False):
         events.append(event)
         previous.update({key: rows for key, rows in payload['sections'].items() if rows is not None})
     return {'plate': plate, 'observations': events, 'note': 'Eigen waarnemingen sinds het opzoeken in deze app; geen gereconstrueerde historie van vóór die tijd.'}
+
+def lookup_vin(value, refresh=False, selection=None):
+    try:value=vin.normalize(value)
+    except ValueError as exc:raise LookupError(str(exc),400) from exc
+    with database() as db:
+        if selection is None:
+            saved=db.execute('SELECT context FROM selections WHERE plate=?',(value,)).fetchone();selection=json.loads(saved[0]) if saved else {}
+        if not isinstance(selection,dict) or set(selection)-{'vin_decode_enabled'} or not isinstance(selection.get('vin_decode_enabled',False),bool):raise LookupError('Ongeldige VIN-bronkeuze.',400)
+        selection={'vin_decode_enabled':selection.get('vin_decode_enabled',False)}
+        db.execute('INSERT OR REPLACE INTO selections VALUES (?,?)',(value,json.dumps(selection)))
+        stored=db.execute('SELECT fetched,payload FROM cache WHERE plate=?',(value,)).fetchone()
+    if stored and not refresh:
+        cached=json.loads(stored[1])
+        if time.time()-stored[0]<CACHE_SECONDS and cached.get('schema_version')==SCHEMA_VERSION and cached.get('selection')==selection and cached.get('vin_provider_enabled')==vin.configured():
+            cached['cached']=True;cached['history']=history(value);return cached
+    sections={'vin_structuur':[vin.structure(value)],'vin_rdw':[]};reasons={'vin_rdw':'RDW Open Data biedt in de aangesloten datasets geen zoeken op volledig VIN. Een kenteken moet afzonderlijk opgezocht worden.'};warnings=[]
+    try:sections['vin_decoder'],reasons['vin_decoder']=vin.decode(value,selection['vin_decode_enabled'])
+    except vin.VinError as exc:sections['vin_decoder']=None;reasons['vin_decoder']=str(exc);warnings.append(str(exc))
+    for key,(_,reason) in vin.UNAVAILABLE.items():sections[key]=[];reasons[key]=reason
+    sources=dict(vin.SOURCES)
+    derived=vin.vehicle(sections.get('vin_decoder') or [])
+    if derived:
+        sections['voertuig']=derived;sources['voertuig']={'label':'Modelidentificatie uit VIN-provider','provider':'Vincario','scope':'vin','fields':{},'note':'Afgeleid uit ontvangen leveranciersvelden, geen RDW-registratie.','url':'https://vincario.com'}
+    result={'plate':value,'vin':value,'lookup_type':'vin','schema_version':SCHEMA_VERSION,'selection':selection,'vin_provider_enabled':vin.configured(),'sections':sections,'sources':sources,'source_status':source_statuses(sections,reasons),'warnings':warnings,'fetched_at':time.time(),'cached':False}
+    remember(result)
+    if not warnings:
+        with database() as db:db.execute('INSERT OR REPLACE INTO cache VALUES (?,?,?)',(value,result['fetched_at'],json.dumps(result)))
+    result['history']=history(value);return result
 
 def lookup(plate, refresh=False, selection=None):
     plate = normalize(plate)
@@ -377,9 +413,9 @@ def application(environ, start_response):
         if method not in ('GET','HEAD') and not (path.startswith('/api/reports/') and method in ('POST','DELETE')):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.6.0"}'
+            body = b'{"status":"ok","version":"0.7.0"}'
         elif path.startswith('/api/reports/'):
-            parts=path.removeprefix('/api/reports/').split('/');plate=normalize(parts[0])
+            parts=path.removeprefix('/api/reports/').split('/');plate=normalize_identifier(parts[0])
             if method in ('POST','DELETE'):
                 if environ.get('HTTP_ORIGIN') and urlparse(environ['HTTP_ORIGIN']).netloc!=environ.get('HTTP_HOST'):raise LookupError('Ongeldige aanvraagherkomst.',400)
             try:
@@ -400,7 +436,7 @@ def application(environ, start_response):
         elif path.startswith('/api/report-file/'):
             parts=path.removeprefix('/api/report-file/').split('/')
             if len(parts)!=2:raise LookupError('Rapport niet gevonden.',404)
-            try:row,body=reports.document(DATA,normalize(parts[0]),parts[1])
+            try:row,body=reports.document(DATA,normalize_identifier(parts[0]),parts[1])
             except FileNotFoundError as exc:raise LookupError(str(exc),404) from exc
             content_type='application/pdf';headers.extend([('Content-Disposition',"attachment; filename=\"rapport.pdf\"; filename*=UTF-8''"+quote(row['name'],safe='')),('Cache-Control','no-store')])
         elif path=='/api/report-options':
@@ -423,6 +459,13 @@ def application(environ, start_response):
         elif path.startswith('/api/history/'):
             body = json.dumps(history(path.removeprefix('/api/history/'), full=True), ensure_ascii=False).encode()
             headers.append(('Cache-Control', 'no-store'))
+        elif path.startswith('/api/vin/'):
+            query=parse_qs(environ.get('QUERY_STRING',''));selection=None
+            if 'selection' in query:
+                try:selection=json.loads(query['selection'][0])
+                except ValueError as exc:raise LookupError('Ongeldige VIN-bronkeuze.',400) from exc
+            result=lookup_vin(path.removeprefix('/api/vin/'),query.get('refresh')==['1'],selection)
+            body=json.dumps(result,ensure_ascii=False).encode();headers.append(('Cache-Control','no-store'))
         elif path.startswith('/api/vehicle/'):
             query = parse_qs(environ.get('QUERY_STRING', ''))
             selection = None

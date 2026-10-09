@@ -82,7 +82,7 @@ def names(make):return [make,'VW'] if make.casefold()=='volkswagen' else [make]
 
 def read(url):
  try:
-  with urlopen(Request(url,headers={'User-Agent':'KentekenCheck/0.6.0 (+https://github.com/TheRoyalCaptain/Kenteken-Check)','Accept':'text/html,application/xml'}),timeout=12) as response:
+  with urlopen(Request(url,headers={'User-Agent':'KentekenCheck/0.7.0 (+https://github.com/TheRoyalCaptain/Kenteken-Check)','Accept':'text/html,application/xml'}),timeout=12) as response:
    # Do not follow a provider redirect to an unrelated host.
    if urlparse(response.url).hostname!=urlparse(url).hostname:raise ValueError('External redirect')
    raw=response.read(8_000_001)
@@ -139,7 +139,7 @@ def fetch(key,url,vehicle):
 MAX_PDF=6*1024*1024
 
 def folder(directory,plate):
- if not re.fullmatch(r'[A-Z0-9]{6}',plate):raise ValueError('Ongeldig kenteken.')
+ if not re.fullmatch(r'(?:[A-Z0-9]{6}|[A-HJ-NPR-Z0-9]{17})',plate):raise ValueError('Ongeldig kenteken.')
  return Path(directory)/'reports'/plate
 
 def documents(directory,plate):

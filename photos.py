@@ -43,7 +43,7 @@ def safe_url(value, hosts):
 
 def request(url, limit):
     try:
-        with urlopen(Request(url,headers={'User-Agent':'KentekenCheck/0.6.0 (https://github.com/TheRoyalCaptain/Kenteken-Check)','Accept':'application/json, image/jpeg, image/png, image/webp'}),timeout=12) as response:
+        with urlopen(Request(url,headers={'User-Agent':'KentekenCheck/0.7.0 (https://github.com/TheRoyalCaptain/Kenteken-Check)','Accept':'application/json, image/jpeg, image/png, image/webp'}),timeout=12) as response:
             data=response.read(limit+1);mime=response.headers.get_content_type()
         if len(data)>limit: raise ValueError('Response too large')
         return data,mime

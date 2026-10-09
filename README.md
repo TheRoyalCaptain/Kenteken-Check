@@ -1,4 +1,4 @@
-# Kenteken Check — 0.4.0
+# Kenteken Check — 0.5.0
 
 Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
 
@@ -13,9 +13,17 @@ Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaar
 - Optionele externe koppeling met de gedocumenteerde gratis API van 123kentekencheck.nl. Zonder persoonlijke sleutel wordt deze bron als niet beschikbaar / niet aangesloten vermeld.
 - Ook zonder actuele basisregistratie worden onafhankelijke datasets en opgeslagen historie getoond.
 
+## Voorbeeldfoto’s van model en kleur
+
+Boven het overzicht en in **Foto’s** verschijnen maximaal vier herbruikbare Wikimedia Commons-foto’s. De zoekopdracht gebruikt merk, volledige handelsbenaming en eerste RDW-kleur; kenteken en VIN worden niet naar Commons verstuurd. De app controleert merk, model en kleur in beschrijving en categorieën en toont geen andere kleur als vervanging. Bij ontbrekende gegevens, geen passende zoekresultaten of een bronstoring verschijnt de reden in de bronstatus.
+
+Het zijn voorbeeldauto’s, geen foto’s van het opgezochte kenteken. De match gebruikt bronmetadata, geen visuele herkenning. Generatie, carrosserie, uitvoering en exacte lak kunnen afwijken; RDW geeft een brede kleurcategorie, geen lakcode. Een gekozen Europese generatie wordt extra gecontroleerd wanneer een Romeins generatienummer beschikbaar is. Er is geen garantie dat Commons voor ieder model en elke kleur een geschikte foto heeft.
+
+Elke foto vermeldt auteur, oorspronkelijke bron en licentie. Alleen ondersteunde vrije licenties worden geaccepteerd; bronmetadata blijven volledig in de gegevens en export staan. Afbeeldingen worden via de eigen server geladen. Internettoegang naar `commons.wikimedia.org`, `upload.wikimedia.org` en `thumb.wikimedia.org` is nodig. Zoekresultaten worden 24 uur lokaal gecachet; thumbnails worden lokaal bewaard. **Vernieuwen** ververst voertuiggegevens, maar respecteert deze fotocache. De kleine voorbeeldgalerij is geen volledige foto- of advertentiehistorie.
+
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.4.0**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.5.0**. Herlaad de pagina na de update. Poort: 8767.
 
 De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
@@ -27,9 +35,9 @@ Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuig
 
 De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
 
-## Aanvullende Nederlandse en Europese bronnen (0.4.0)
+## Aanvullende Nederlandse en Europese bronnen (0.5.0)
 
-De app gebruikt uitsluitend Nederlandse en Europese bronnen. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
+De app gebruikt Nederlandse en Europese voertuiggegevens. Wikimedia Commons levert daarnaast herbruikbare voorbeeldfoto’s. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
 
 - **Teruggeroepen.nl**: automatisch gekoppeld op de terugroepreferenties die RDW voor het kenteken heeft geleverd. Het volledige oorspronkelijke antwoord bevat ook broninformatie, modellen, aantallen en datums. De onderliggende data komen uit RDW; dit is geen onafhankelijke extra bevestiging. Een ontbrekende melding en een storing krijgen verschillende statussen. Attribution en bronlink staan bij de resultaten. Documentatie: https://www.teruggeroepen.nl/api
 - **autoseeker.eu**: gratis Europese modelcatalogus onder CC BY 4.0. Open **Aanvullende bronnen** en selecteer zelf een model/generatie van hetzelfde merk. De server controleert merk en catalogus-ID. Geen automatische gok op model of bouwjaar. Alle originele specificaties en catalogusmetadata worden getoond en bewaard, met bronvermelding en link. De catalogus is indicatief en bevat niet iedere historische uitvoering; gegevens zijn geen bewezen eigenschappen van jouw specifieke auto. Documentatie: https://autoseeker.eu/data/

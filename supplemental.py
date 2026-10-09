@@ -34,7 +34,7 @@ def context(values):
 
 def get(url):
     try:
-        with urlopen(Request(url, headers={'Accept': 'application/json', 'User-Agent': 'KentekenCheck/0.4.0'}), timeout=12) as response:
+        with urlopen(Request(url, headers={'Accept': 'application/json', 'User-Agent': 'KentekenCheck/0.5.0'}), timeout=12) as response:
             raw = response.read(8_000_001)
         if len(raw) > 8_000_000: raise ValueError('Response too large')
         data = json.loads(raw)

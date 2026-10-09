@@ -21,6 +21,19 @@ class AppTests(unittest.TestCase):
         statuses=[]
         body=b''.join(app.application({'PATH_INFO':path,'REQUEST_METHOD':method,'QUERY_STRING':''},lambda s,h:statuses.append((s,h))))
         return statuses[0], body
+    def test_photo_endpoint_binary_and_missing(self):
+        with patch('app.photos.media',return_value=(b'photo','image/jpeg')):
+            (status,headers),body=self.request('/api/photo/'+'a'*64)
+            self.assertEqual(status,'200 OK');self.assertEqual(body,b'photo')
+            self.assertEqual(dict(headers)['Content-Type'],'image/jpeg')
+        (status,_),_=self.request('/api/photo/unknown')
+        self.assertEqual(status,'404 Not Found')
+
+    def test_photo_endpoint_provider_failure(self):
+        with patch('app.photos.media',side_effect=app.photos.PhotoError('Fotobron tijdelijk onbereikbaar.')):
+            (status,_),body=self.request('/api/photo/'+'a'*64)
+            self.assertEqual(status,'503 Service Unavailable');self.assertIn('Fotobron',body.decode())
+
     def test_normalize_and_reject_injection(self):
         self.assertEqual(app.normalize(' ab-123-c '),'AB123C')
         for invalid in ['ABCDEF','123456',"AB123C'",'../../app.py','AB123C?x=1','']:

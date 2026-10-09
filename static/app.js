@@ -49,7 +49,7 @@ const GROUPS = {
   'Gewichten & trekvermogen':['massa_ledig_voertuig','massa_rijklaar','toegestane_maximum_massa_voertuig','technische_max_massa_voertuig','maximum_massa_trekken_ongeremd','maximum_trekken_massa_geremd','maximum_massa_samenstelling'],
   'Afmetingen & indeling':['lengte','breedte','hoogte_voertuig','wielbasis','aantal_deuren','aantal_wielen','aantal_zitplaatsen','aantal_rolstoelplaatsen']
 };
-const TABS = [['overzicht','Overzicht'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
+const TABS = [['overzicht','Overzicht'],['fotos','Foto’s'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
 let current = null, activeTab = 'overzicht', requestId = 0, comparisons = [];
 function readList(key) {
   try {const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&/^[A-Z0-9]{6}$/.test(x)).slice(0,30):[];} catch {return [];}
@@ -257,11 +257,33 @@ async function applySupplemental(selection){
   const plate=current.plate;await search(plate,false,selection);if(current){activeTab='aanvullend';$('details').setAttribute('aria-labelledby','tab-aanvullend');renderDetails();}
 }
 
+function photoView(compact=false){
+  const box=element('section',undefined,compact?'photo-strip':'photo-section');
+  box.append(element('h2','Voorbeeldfoto’s · hetzelfde model en kleur'));
+  const rows=current.sections.modelfotos||[];
+  if(!rows.length){box.append(element('p',sourceState('modelfotos').reason||'Geen passende foto beschikbaar.','empty'));return box;}
+  box.append(element('p','Voorbeeldauto, niet dit kenteken. Match op bronmetadata; generatie, uitvoering en exacte lak kunnen afwijken.','photo-note'));
+  const gallery=element('div',undefined,'photo-gallery');
+  for(const photo of rows){
+    if(!/^\/api\/photo\/[a-f0-9]{64}$/.test(photo.image_url||''))continue;
+    const figure=element('figure',undefined,'photo-card'),img=element('img');img.src=photo.image_url;img.alt=[photo.make,photo.model,photo.color,'· voorbeeldauto'].filter(Boolean).join(' ');img.loading='lazy';img.decoding='async';
+    img.addEventListener('error',()=>{img.hidden=true;figure.prepend(element('p','Foto tijdelijk niet beschikbaar.','empty'));},{once:true});
+    const caption=element('figcaption');caption.append(element('strong',[photo.model,photo.color].join(' · ')),element('span','Foto: '+photo.artist));
+    const links=element('span');
+    for(const [label,url,host]of [[photo.licence,photo.licence_url,'creativecommons.org'],['Wikimedia Commons',photo.file_url,'commons.wikimedia.org']]){
+      try{const parsed=new URL(url);if(parsed.protocol!=='https:'||parsed.hostname!==host)continue;const a=element('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';links.append(a,' · ');}catch{}
+    }
+    caption.append(links);figure.append(img,caption);gallery.append(figure);
+  }
+  box.append(gallery);if(!compact)box.append(rawPanel('modelfotos'));return box;
+}
+
 function renderDetails(){
   if(!current)return;
   const query=$('field-query').value.trim().toLowerCase(),out=$('details');out.replaceChildren();
   if(query)out.append(allView(query));
   else if(activeTab==='overzicht')out.append(overview());
+  else if(activeTab==='fotos')out.append(photoView());
   else if(activeTab==='energie')out.append(energyView());
   else if(activeTab==='keuringen')out.append(inspectionView());
   else if(activeTab==='recalls')out.append(recallView());
@@ -287,6 +309,7 @@ function render(){
   else if(days!==null&&days<=30)alerts.append(element('p',days===0?'De APK-vervaldatum is vandaag.':`De APK-vervaldatum is over ${days} dagen.`,'warning'));
   const stats=[['APK geldig tot',format('vervaldatum_apk',v.vervaldatum_apk),days===null?'':days<0?'tone-bad':days<=30?'tone-warn':''],['Brandstof',fuelText(),''],['Tellerstandoordeel',v.tellerstandoordeel||'—',v.tellerstandoordeel==='Onlogisch'?'tone-bad':''],['WAM-verzekerd',v.wam_verzekerd||'—',''],['Terugroepactie',v.openstaande_terugroepactie_indicator||'—',v.openstaande_terugroepactie_indicator==='Ja'?'tone-warn':''],['Import',importText(v),''],['Rijklaargewicht',format('massa_rijklaar',v.massa_rijklaar),''],['Trekgewicht geremd',format('maximum_trekken_massa_geremd',v.maximum_trekken_massa_geremd),'']];
   const summary=$('summary');summary.replaceChildren();for(const [title,value,tone]of stats){const s=element('div',undefined,'stat');s.append(element('small',title),element('strong',value,tone));if(title==='Import')s.title='Afgeleid: eerste registratie Nederland is later dan eerste toelating.';summary.append(s);}
+  $('vehicle-photos').replaceChildren(photoView(true));
   $('tabs').replaceChildren();for(const [key,title]of TABS){const b=element('button',title);b.dataset.key=key;b.setAttribute('role','tab');b.id='tab-'+key;b.setAttribute('aria-controls','details');b.addEventListener('click',()=>{activeTab=key;$('field-query').value='';$('details').setAttribute('aria-labelledby',b.id);renderDetails();b.scrollIntoView({block:'nearest',inline:'nearest'});});$('tabs').append(b);}
   activeTab='overzicht';$('field-query').value='';$('details').setAttribute('aria-labelledby','tab-overzicht');renderDetails();favoriteButton();
 }

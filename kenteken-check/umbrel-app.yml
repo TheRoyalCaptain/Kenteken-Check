@@ -2,7 +2,7 @@ manifestVersion: 1
 id: kenteken-check
 category: utilities
 name: Kenteken Check
-version: "0.4.0"
+version: "0.5.0"
 tagline: Nederlandse voertuiggegevens zonder betaalmuur
 description: >-
   Bekijk alle ontvangen kentekengegevens met een duidelijke status per bron:
@@ -12,11 +12,10 @@ description: >-
   API-koppeling gebruikt je eigen sleutel. Geen gegevens worden als compleet
   voorgesteld wanneer de bron ze niet levert.
 releaseNotes: >-
-  Aanvullende Nederlandse en Europese bronnen: Teruggeroepen.nl op exacte
-  RDW-referentie, Europese modelcatalogus van autoseeker.eu met eigen
-  generatiekeuze, en EEA-registratiedata op exact goedkeuringsnummer, variant
-  en uitvoering via expliciet inschakelbare koppeling. Bronstatussen,
-  oorspronkelijke data, bewaarde keuzes en bladeren door grote datasets.
+  Voorbeeldfoto’s van hetzelfde model en dezelfde RDW-kleur via Wikimedia
+  Commons, compact boven het overzicht en in een eigen fototabblad. Met
+  auteur, licentie en bronvermelding. Geen passende foto of een bronstoring
+  wordt expliciet gemeld. Geen kenteken of VIN naar de fotobron.
 developer: Kevin van Krugten
 website: https://github.com/TheRoyalCaptain/Kenteken-Check
 dependencies: []

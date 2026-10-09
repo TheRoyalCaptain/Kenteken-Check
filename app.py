@@ -1,4 +1,5 @@
 """Kenteken Check: WSGI application with no framework dependencies."""
+import photos
 import supplemental
 import itertools
 import hashlib
@@ -41,7 +42,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -78,7 +79,7 @@ def fetch_rows(dataset, label, filters):
     for offset in itertools.count(0, 1000):
         params = dict(filters, **{'$limit': 1000, '$offset': offset})
         url = f'https://opendata.rdw.nl/resource/{dataset}.json?' + urlencode(params)
-        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.4.0', 'Accept': 'application/json'})
+        request = Request(url, headers={'User-Agent': 'KentekenCheck/0.5.0', 'Accept': 'application/json'})
         try:
             with urlopen(request, timeout=12) as response:
                 raw = response.read(4_000_001)
@@ -125,6 +126,7 @@ def source_metadata():
         sources[key] = {'label': label, 'url': 'https://123kentekencheck.nl/api/aanmelden', 'scope': 'extern', 'provider': '123kentekencheck.nl', 'fields': {}}
     for key, (label, reason, url) in UNAVAILABLE_HISTORY.items():
         sources[key] = {'label': label, 'url': url, 'scope': 'historie', 'provider': 'Beschikbaarheid historie', 'fields': {}}
+    sources['modelfotos'] = photos.SOURCE
     sources.update(supplemental.metadata())
     return sources
 
@@ -150,7 +152,7 @@ def fetch_external(key, plate):
         return [], 'Een persoonlijke API-sleutel ontbreekt; deze externe bron is niet aangesloten.'
     suffix, label = EXTERNALS[key]
     request = Request(f'https://123kentekencheck.nl/api/v1/kenteken/{plate}{suffix}',
-                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.4.0', 'Accept': 'application/json'})
+                      headers={'X-API-Key': token, 'User-Agent': 'KentekenCheck/0.5.0', 'Accept': 'application/json'})
     try:
         with urlopen(request, timeout=12) as response:
             raw = response.read(4_000_001)
@@ -249,7 +251,7 @@ def changes_between(before, after):
     changes = []
     for key, rows in after.items():
         # Do not misreport source outages or newly enabled datasets as vehicle changes.
-        if key in supplemental.SOURCES:
+        if key in supplemental.SOURCES or key == 'modelfotos':
             continue  # Context source changes do not prove an individual vehicle event.
         old = before.get(key)
         if old is None or rows is None:
@@ -336,6 +338,12 @@ def lookup(plate, refresh=False, selection=None):
     sections.update(extra)
     reasons.update(extra_reasons)
     warnings.extend(extra_warnings)
+    try:
+        sections['modelfotos'], reasons['modelfotos'] = photos.find((sections.get('voertuig') or [{}])[0], sections.get('eu_model') or [], DATA)
+    except photos.PhotoError as exc:
+        sections['modelfotos'] = None
+        reasons['modelfotos'] = str(exc)
+        warnings.append(str(exc))
     result = {'selection': selection, 'external_enabled': bool(os.environ.get('KENTEKEN_API_KEY')), 'schema_version': SCHEMA_VERSION, 'plate': plate, 'sections': sections, 'warnings': warnings, 'fetched_at': time.time(), 'cached': False,
               'sources': source_metadata(), 'source_status': source_statuses(sections, reasons)}
     remember(result)
@@ -358,7 +366,12 @@ def application(environ, start_response):
         if method not in ('GET', 'HEAD'):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.4.0"}'
+            body = b'{"status":"ok","version":"0.5.0"}'
+        elif path.startswith('/api/photo/'):
+            try: body, content_type = photos.media(path.removeprefix('/api/photo/'), DATA)
+            except FileNotFoundError as exc: raise LookupError(str(exc), 404) from exc
+            except photos.PhotoError as exc: raise LookupError(str(exc)) from exc
+            headers.append(('Cache-Control', 'private, max-age=86400'))
         elif path == '/api/eu-models':
             query = parse_qs(environ.get('QUERY_STRING', ''))
             try: body = json.dumps(supplemental.model_options(query.get('make', [''])[0]), ensure_ascii=False).encode()

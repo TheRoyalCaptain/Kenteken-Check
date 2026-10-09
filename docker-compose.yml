@@ -7,6 +7,18 @@ services:
       KENTEKEN_API_KEY: ${KENTEKEN_API_KEY:-}
       VINCARIO_API_KEY: ${VINCARIO_API_KEY:-}
       VINCARIO_SECRET_KEY: ${VINCARIO_SECRET_KEY:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-auto}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    init: true
+  monitor:
+    build: .
+    command: ["python", "worker.py"]
+    environment:
+      KENTEKEN_API_KEY: ${KENTEKEN_API_KEY:-}
+      VINCARIO_API_KEY: ${VINCARIO_API_KEY:-}
+      VINCARIO_SECRET_KEY: ${VINCARIO_SECRET_KEY:-}
     volumes:
       - ./data:/data
     restart: unless-stopped

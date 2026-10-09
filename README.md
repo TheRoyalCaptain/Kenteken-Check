@@ -1,6 +1,22 @@
-# Kenteken Check — 0.8.1
+# Kenteken Check — 0.9.0
 
 Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
+
+## Accounts, database en dagelijkse controles (0.9.0)
+
+De app gebruikt een eigen inlogscherm. Het Umbrel-pakket zet `PROXY_AUTH_ADD: "false"`. Maak bij de eerste opening direct je beheeraccount met een zelfgekozen wachtwoord van 12–128 tekens; er zijn geen standaardinloggegevens en geen openbare zelfregistratie na deze eerste inrichting. Rond dit af op je eigen vertrouwde netwerk voordat je de app aan anderen beschikbaar maakt. Via **Mijn account** kunnen beheerders gebruikers of extra beheerders aanmaken, accounts inschakelen/uitschakelen en wachtwoorden opnieuw instellen. Gebruikers wijzigen hun eigen wachtwoord met hun huidige wachtwoord. Houd voor herstel desgewenst een tweede beheerder aan; er is geen achterdeur of automatisch e-mailherstel.
+
+Wachtwoorden zijn **scrypt-hashes** met een unieke willekeurige salt van 16 bytes, N=131072, r=8, p=1 en een afleiding van 64 bytes. Er staat geen leesbaar of ontsleutelbaar wachtwoord in de database. De instellingen volgen [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html). Een gestolen hash kan nog offline worden aangevallen; kies dus een sterk wachtwoord. Sessietokens zijn willekeurig met 256 bits; alleen hun SHA-256-hash staat in de database. Cookies zijn HttpOnly, SameSite=Lax en bij HTTPS Secure. Sessies verlopen na maximaal 12 uur of 30 minuten inactiviteit. Uitloggen verwijdert de sessie; wachtwoordwijziging/-reset en uitschakeling trekken bestaande sessies in. Inloggen is begrensd per account en server-waargenomen netwerkadres. Mutaties vereisen CSRF-controle; setup/login vereisen een header die een vreemde website zonder toegestane CORS niet kan versturen. Voertuig-, historie-, foto- en rapport-API’s vereisen een ingelogd account. Alleen de interfacebestanden en healthcheck zijn publiek.
+
+Hashing beschermt opgeslagen wachtwoorden, niet netwerkverkeer. **Gebruik HTTPS voor toegang buiten je vertrouwde lokale netwerk.** `SESSION_COOKIE_SECURE=true` dwingt Secure-cookies af; standaard volgt dit HTTPS of de door de proxy doorgegeven HTTPS-indicator. Back-ups bevatten voertuiggegevens en wachtwoordhashes en moeten privé blijven. Toegang tot serverbeheer valt buiten de bescherming van een app-wachtwoord.
+
+SQLite draait met WAL voor gelijktijdige toegang van webapp en monitor. `/data/platform.sqlite` bevat gebruikers, sessies, loginbegrenzing, favorieten, voorkeuren/begrotingen en controleplanning. `/data/users/<gebruikers-id>/cache.sqlite` bevat de gescheiden voertuigcache, bronkeuzes en versies. PDF’s en fotocaches staan in dezelfde persoonlijke omgeving. Er is geen losse databaseserver of databasewachtwoord nodig. Databasebestanden krijgen bestandsrechten 0600; nieuwe persoonlijke mappen 0700. Alles blijft op het persistente Umbrel-datavolume.
+
+Bij de eerste beheerder worden de bestaande voertuigdatabase en PDF-/fotogegevens naar diens omgeving gemigreerd. De databasekopie wordt gecontroleerd en per kenteken/VIN begrensd op vier snapshots. Pas na het vastleggen van het beheeraccount wordt de oude database uit de hoofdmap verwijderd. Oude PDF-/fotomappen blijven als migratiekopie in de hoofdmap staan, maar zijn niet via andere gebruikers toegankelijk. Nieuwe gebruikers beginnen leeg. Voor oude browserfavorieten en hun begrotingen is er een expliciete beheerknop **Oude browserfavorieten importeren**. Nieuwe favorieten, recente zoekopdrachten en begrotingen staan in je account en werken ook op andere apparaten.
+
+**Bewaren** slaat een voertuig op in je eigen garage. Voor Nederlandse kentekens staat dagelijkse controle standaard aan; die kan worden gepauzeerd. VIN’s kunnen worden bewaard, maar worden niet automatisch aan een mogelijk betaalde VIN-decoder aangeboden. De aparte `monitor`-container controleert iedere minuut de persistente planning en haalt verse kentekenresultaten op, ook met alle browsers gesloten. Na succes volgt de volgende controle 24 uur later; na een mislukking volgt na één uur een nieuwe poging. Een onderbroken job heeft een lease van 30 minuten en kan daarna opnieuw worden opgepakt. Tijdens de lease voeren meerdere monitorprocessen niet dezelfde job uit. Na downtime worden vervallen controles ingehaald. Maximaal 50 opgeslagen voertuigen per gebruiker. De monitor gebruikt per-kenteken opgeslagen bronkeuzes en eventueel de ingestelde 123kentekencheck-sleutel, binnen leveranciersquota. EEA blijft expliciet inschakelbaar; eerder gekozen bronopties gelden ook voor dagelijkse controles.
+
+Per kenteken/VIN blijft **de huidige bewaarde versie plus maximaal drie oudere versies** staan. Ongewijzigde inhoud werkt alleen de laatste bevestigingsdatum bij. Bronstoringen of gedeeltelijk mislukte antwoorden verdringen geen goede versie. Veranderende contextbronnen of bronkeuzes kunnen ook een nieuwe snapshot opleveren; dat bewijst geen fysieke voertuigwijziging. Handmatige zoekopdrachten en de monitor gebruiken dezelfde bewaarlimiet. Meer dan drie oudere snapshots worden verwijderd. Bij **Versies** kun je de volledige ontvangen gegevens per bewaard moment bekijken; de historie-export bevat deze snapshots. Een favoriet verwijderen stopt de controle, maar wist niet het dossier of de maximaal vier snapshots. De limiet geldt voor snapshots, niet voor losse originele rapporten of records binnen een snapshot.
 
 ## Wat is toegevoegd?
 
@@ -15,7 +31,7 @@ De openbare exportfilter (`hbkz-ufqe`) is een weergave van dezelfde RDW-basisdat
 Het lokale archief begint bij kentekens die **in deze installatie eerder met voertuiggegevens zijn opgezocht**. Het reconstrueert geen ontbrekende oudere dossiers van nog nooit opgezochte kentekens. Snapshots blijven in de bestaande SQLite-opslag, ook als de korte cache verloopt. Het archief bewijst alleen wat de app toen ontvangen heeft en geen huidige status. Externe PDF-rapporten kunnen per kenteken bij Rapporten worden bewaard; de inhoud wordt niet automatisch als geverifieerde status geïnterpreteerd.
 
 - **Aankoopcheck**: APK-termijn, WOK, overschrijfbaarheid, export, WAM, tellerstandoordeel, terugroepindicator en afgeleide importindicatie. Onbekende controles blijven onbekend; geen commerciële betrouwbaarheidsscore of garantie. Evaluatie gebeurt op de dag van openen en staat in de JSON-export, met bronveld en uitleg.
-- **Kostenplanner**: eigen praktijkverbruik en energieprijzen, kilometers, verzekering, kwartaalbelasting, onderhoud, banden, overige kosten en lineaire afschrijving. Volledig uitgewerkte begroting per jaar, maand en kilometer. Leeg is onbekend; niet van toepassing vul je zelf als 0 in. Geen verzonnen belastingtarieven, dagwaarde of RDW-testverbruik als praktijkmeting. Invoer blijft in deze browser per kenteken en wordt met herkomstlabel mee geëxporteerd.
+- **Kostenplanner**: eigen praktijkverbruik en energieprijzen, kilometers, verzekering, kwartaalbelasting, onderhoud, banden, overige kosten en lineaire afschrijving. Volledig uitgewerkte begroting per jaar, maand en kilometer. Leeg is onbekend; niet van toepassing vul je zelf als 0 in. Geen verzonnen belastingtarieven, dagwaarde of RDW-testverbruik als praktijkmeting. Invoer wordt in je account opgeslagen per kenteken en wordt met herkomstlabel mee geëxporteerd.
 - **Informatiedekking**: per onderwerp beschikbaar / deels beschikbaar / niet beschikbaar / ophalen mislukt. Openbare APK-data, modelcontext en voorbeeldfoto’s zijn geen volledige individuele historie. Diefstalhistorie en exacte fabrieksopties worden expliciet als niet beschikbaar gemeld.
 
 ### Vergelijking met andere kentekenchecks (9 oktober 2026)
@@ -41,7 +57,7 @@ Het zijn voorbeeldauto’s, geen foto’s van het opgezochte kenteken. De match 
 
 Elke foto vermeldt auteur, oorspronkelijke bron en licentie. Alleen ondersteunde vrije licenties worden geaccepteerd; bronmetadata blijven volledig in de gegevens en export staan. Afbeeldingen worden via de eigen server geladen. Internettoegang naar `commons.wikimedia.org`, `upload.wikimedia.org` en `thumb.wikimedia.org` is nodig. Zoekresultaten worden 24 uur lokaal gecachet; thumbnails worden lokaal bewaard. **Vernieuwen** ververst voertuiggegevens, maar respecteert deze fotocache. De kleine voorbeeldgalerij is geen volledige foto- of advertentiehistorie.
 
-## Europese modelrapporten en eigen PDF’s (0.8.1)
+## Europese modelrapporten en eigen PDF’s (0.9.0)
 
 **Rapporten** koppelt openbare modelrapporten van Euro NCAP, Green NCAP en ADAC. De app zoekt kandidaten uit de openbare bronindex op merk en modelfamilie. Dit zijn kandidaten, geen automatische bevestiging van generatie, motor of uitrusting. ADAC toont een selectie recente tests, geen volledige historische catalogus. Je kunt ook een directe HTTPS-modelrapportlink van een van deze drie bronnen invoeren. Controleer het originele rapport en bevestig de uitvoering vóór koppelen. De server controleert officiële host, rapportpad en merk/modelfamilie in de titel; bij twijfel wordt geen rapport gekoppeld.
 
@@ -53,7 +69,7 @@ CARFAX en carVertical worden niet automatisch bevraagd of aangekocht. Car-Pass e
 
 De interface heeft een donkere grafietstijl met duidelijke panelen, grotere tekst, hoog contrast en leesbare mobiele statistieken. Afdrukken gebruikt een lichte weergave.
 
-## VIN / chassisnummer (0.8.1)
+## VIN / chassisnummer (0.9.0)
 
 Kies **VIN / chassisnummer** bij het zoekveld of open een bewaard VIN. De app ondersteunt moderne VIN’s van 17 letters/cijfers zonder I, O of Q. Spaties en kleine letters worden genormaliseerd; oude kortere chassisnummers worden nog niet ondersteund. VIN-resultaten hebben een eigen overzicht, bronstatussen, doorzoekbare ontvangen velden, favorieten, recente zoekopdrachten, vergelijking, JSON-export, eigen waarnemingen en lokale PDF-rapporten. VIN en kenteken blijven afzonderlijke dossiers; er wordt geen voertuig op een vergelijkbaar model gekoppeld.
 
@@ -61,13 +77,13 @@ De gratis lokale controle toont de WMI-code, de tekenposities en het identificat
 
 Voor uitgebreide VIN-decodering is een optionele Europese leveranciersadapter beschikbaar: **Vincario / vindecoder.eu**. Zet eigen `VINCARIO_API_KEY` en `VINCARIO_SECRET_KEY` in de containeromgeving. Sleutels worden niet naar de browser gestuurd of in GitHub gezet. Open het VIN-overzicht en schakel de bron expliciet in. De volledige VIN wordt dan naar de provider verstuurd. Deze bron gebruikt proefquota of betaald tegoed en is geen onbeperkte gratis API. Zonder sleutels of zonder inschakelen wordt geen externe aanvraag verstuurd. De adapter gebruikt het gedocumenteerde SHA-1-controlegetal en decode-endpoint, controleert het teruggeleverde volledige VIN en bewaart alle ontvangen JSON-velden. De adapter is met gecontroleerde antwoorden getest; er zijn hier geen eigen leverancierssleutels voor een live betaalde/geautoriseerde proef.
 
-VIN-resultaten worden maximaal een uur gecachet; **Vernieuwen** kan bij ingeschakelde decoder opnieuw quota gebruiken. Bronkeuze wordt lokaal per VIN onthouden. Bij een providerstoring blijven de structuurcontrole en eigen documenten beschikbaar en wordt geen onvolledig resultaat gecachet. Eigen waarnemingen zijn geen gereconstrueerde geschiedenis van vóór het gebruik van de app. PDF’s blijven in `/data/reports/<VIN>/` staan. Er wordt geen VIN naar RDW, fotobronnen of modelrapportbronnen doorgestuurd vanuit de VIN-check.
+VIN-resultaten worden maximaal een uur gecachet; **Vernieuwen** kan bij ingeschakelde decoder opnieuw quota gebruiken. Bronkeuze wordt lokaal per VIN onthouden. Bij een providerstoring blijven de structuurcontrole en eigen documenten beschikbaar en wordt geen onvolledig resultaat gecachet. Eigen waarnemingen zijn geen gereconstrueerde geschiedenis van vóór het gebruik van de app. PDF’s staan in `/data/users/<gebruikers-id>/reports/<VIN>/`. Er wordt geen VIN naar RDW, fotobronnen of modelrapportbronnen doorgestuurd vanuit de VIN-check.
 
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.8.1**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.9.0**. Herlaad de pagina na de update. Poort: 8767.
 
-De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
+De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. De app verzorgt eigen accounts en het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
 ## Bronnen en koppeling
 
@@ -77,7 +93,7 @@ Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuig
 
 De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
 
-## Aanvullende Nederlandse en Europese bronnen (0.8.1)
+## Aanvullende Nederlandse en Europese bronnen (0.9.0)
 
 De app gebruikt Nederlandse en Europese voertuiggegevens. Wikimedia Commons levert daarnaast herbruikbare voorbeeldfoto’s. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
 
@@ -114,22 +130,25 @@ Historische websites zijn onderzocht. Andere RDW-overzichten zonder geverifieerd
 
 ## Historie en bewaren
 
-Waarnemingen staan in `/data/cache.sqlite` en blijven bij updates bestaan. De eerste waarneming komt uit de eerste zoekopdracht, of uit een nog aanwezige cache van een eerdere appversie. De oorspronkelijke ophaaldatum wordt behouden. Een latere eigen waarneming is **geen bewezen datum waarop de voertuigwijziging werkelijk plaatsvond**. Bij een storing wordt geen verdwenen voertuiggegeven als een wijziging gepresenteerd. Een andere volgorde van dezelfde bronrecords levert geen wijziging op.
+Waarnemingen staan in `/data/users/<gebruikers-id>/cache.sqlite` en blijven bij updates bestaan. De eerste waarneming komt uit de eerste zoekopdracht, of uit een nog aanwezige cache van een eerdere appversie. De oorspronkelijke ophaaldatum wordt behouden. Een latere eigen waarneming is **geen bewezen datum waarop de voertuigwijziging werkelijk plaatsvond**. Bij een storing wordt geen verdwenen voertuiggegeven als een wijziging gepresenteerd. Een andere volgorde van dezelfde bronrecords levert geen wijziging op.
 
-Er wordt niet op de achtergrond dagelijks gecontroleerd: nieuwe waarnemingen ontstaan bij zoekopdrachten die verse gegevens ophalen of bij **Vernieuwen**. Er is geen gereconstrueerde historie van vóór de eerste bewaarde waarneming. Snapshots worden niet automatisch verwijderd, zodat je historie behouden blijft; de opslag groeit met het aantal wijzigingen.
+Voor opgeslagen kentekens met controle ingeschakeld draait de monitor dagelijks; zoekopdrachten en Vernieuwen kunnen ook nieuwe versies opleveren. Per dossier blijven de huidige versie en maximaal drie oudere versies behouden. Er is geen gereconstrueerde historie van vóór de eerste bewaarde waarneming.
 
 Volledige resultaten worden maximaal een uur gecachet. Vernieuwen haalt opnieuw op. Aanvullende bronstoringen worden zichtbaar gemeld en dergelijke resultaten worden niet gecachet. Oude cachegegevens worden na zeven dagen bij een geslaagde aanvraag opgeschoond; de historie blijft bewaard. De update gebruikt een nieuwe schemaversie, zodat oude cache niet als een volledig nieuw resultaat wordt getoond.
 
 Alle bronpagina's worden met paginering opgehaald; er is geen vaste limiet van 5000 records meer. Time-outs, een te groot individueel antwoord of fouten blijven mogelijk en krijgen een foutstatus. Geen stil afgekapt resultaat.
 
-Favorieten en recente zoekopdrachten staan in de browser. Kentekens worden verstuurd naar de benodigde RDW-bronnen en, alleen met een ingestelde sleutel, de externe provider. Geen analytics of tracking.
+Favorieten en recente zoekopdrachten staan in je persoonlijke databaseopslag. Kentekens worden verstuurd naar de benodigde RDW-bronnen en, alleen met een ingestelde sleutel, de externe provider. Geen analytics of tracking.
 
 ## Ontwikkeling en tests
 
 - `DATA_DIR=./data python app.py`
+- `DATA_DIR=./data python worker.py` (naast de webapp; Docker Compose start deze service automatisch)
 - `docker compose up --build -d`
 - `python -m unittest discover -s tests -v`
 - `node --check static/app.js`
+- `node --check static/accounts.js`
+- `node tests/insights.cjs`
 - `npm install --no-save --package-lock=false playwright@1.61.1`
 - `npx playwright install --with-deps chromium`
 - `node tests/browser-smoke.cjs`

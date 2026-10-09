@@ -47,7 +47,7 @@ class VinTests(unittest.TestCase):
    row=reports.save_document(root,VIN,'vin.pdf',b'%PDF-1.7 test');self.assertEqual(len(reports.documents(root,VIN)),1);self.assertEqual(reports.documents(root,'AB123C'),[]);reports.document(root,VIN,row['id'],True)
  def test_vin_route_and_invalid_preferences(self):
   with tempfile.TemporaryDirectory() as root,patch.object(app,'DATA',Path(root)),patch.dict(vin.os.environ,{'VINCARIO_API_KEY':'','VINCARIO_SECRET_KEY':''}):
-   statuses=[];raw=b''.join(app.application({'PATH_INFO':'/api/vin/'+VIN,'REQUEST_METHOD':'GET','QUERY_STRING':''},lambda s,h:statuses.append(s)));self.assertEqual(statuses,['200 OK']);self.assertEqual(json.loads(raw)['vin'],VIN)
+   statuses=[];raw=b''.join(app._application({'PATH_INFO':'/api/vin/'+VIN,'REQUEST_METHOD':'GET','QUERY_STRING':''},lambda s,h:statuses.append(s)));self.assertEqual(statuses,['200 OK']);self.assertEqual(json.loads(raw)['vin'],VIN)
    for selection in ({'vin_decode_enabled':'true'},{'eea_enabled':True},[],None):
     if selection is None:continue
     with self.assertRaises(app.LookupError):app.lookup_vin(VIN,selection=selection)

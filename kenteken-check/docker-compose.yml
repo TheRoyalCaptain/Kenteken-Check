@@ -3,8 +3,9 @@ services:
     environment:
       APP_HOST: kenteken-check_web_1
       APP_PORT: 8080
+      PROXY_AUTH_ADD: "false"
   web:
-    image: ghcr.io/theroyalcaptain/kenteken-check:0.8.1
+    image: ghcr.io/theroyalcaptain/kenteken-check:0.9.0
     init: true
     restart: on-failure
     volumes:
@@ -13,8 +14,20 @@ services:
       KENTEKEN_API_KEY: ${KENTEKEN_API_KEY:-}
       VINCARIO_API_KEY: ${VINCARIO_API_KEY:-}
       VINCARIO_SECRET_KEY: ${VINCARIO_SECRET_KEY:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-auto}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
       interval: 30s
       timeout: 5s
       retries: 5
+  monitor:
+    image: ghcr.io/theroyalcaptain/kenteken-check:0.9.0
+    command: ["python", "worker.py"]
+    init: true
+    restart: unless-stopped
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+    environment:
+      KENTEKEN_API_KEY: ${KENTEKEN_API_KEY:-}
+      VINCARIO_API_KEY: ${VINCARIO_API_KEY:-}
+      VINCARIO_SECRET_KEY: ${VINCARIO_SECRET_KEY:-}

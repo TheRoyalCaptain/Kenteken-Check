@@ -1,11 +1,16 @@
 """Kenteken Check: WSGI application with no framework dependencies."""
 import vin
+import accounts
+import contextvars
+import shutil
+from contextlib import contextmanager, closing
 import photos
 import reports
 import base64
 import supplemental
 import itertools
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -20,6 +25,28 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).parent
 DATA = Path(os.environ.get('DATA_DIR', '/data'))
+CURRENT_USER = contextvars.ContextVar('kenteken_user', default=None)
+
+def storage_dir():
+    ident = CURRENT_USER.get()
+    return DATA / 'users' / str(ident) if ident is not None else DATA
+
+def adopt_legacy(ident):
+    target = DATA / 'users' / str(ident)
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if (DATA / 'cache.sqlite').exists():
+        with closing(sqlite3.connect(DATA / 'cache.sqlite')) as source, closing(sqlite3.connect(target / 'cache.sqlite')) as destination, destination:
+            source.backup(destination)
+            destination.execute('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY, plate TEXT, observed REAL, last_seen REAL, hash TEXT, payload TEXT)')
+            destination.execute('DELETE FROM observations WHERE id NOT IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY plate ORDER BY observed DESC,id DESC) AS rank FROM observations) WHERE rank<=4)')
+            if destination.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise RuntimeError('Migratiecontrole mislukt.')
+    for name in ('reports','photos'):
+        if (DATA / name).exists(): shutil.copytree(DATA/name,target/name,dirs_exist_ok=True)
+
+def finish_legacy_migration():
+    # Called only after the first account and its verified SQLite backup commit.
+    for name in ('cache.sqlite','cache.sqlite-wal','cache.sqlite-shm'):
+        (DATA/name).unlink(missing_ok=True)
 DATASETS = {
     'voertuig': ('m9d7-ebf2', 'Voertuig'),
     'brandstof': ('8ys7-d773', 'Brandstof en emissies'),
@@ -45,7 +72,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -75,14 +102,20 @@ def normalize_identifier(value):
         except ValueError as exc:raise LookupError(str(exc),400) from exc
     return normalize(value)
 
+@contextmanager
 def database():
-    DATA.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DATA / 'cache.sqlite', timeout=10)
+    directory = storage_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    db = sqlite3.connect(directory / 'cache.sqlite', timeout=15)
+    db.execute('PRAGMA journal_mode=WAL')
+    os.chmod(directory / 'cache.sqlite', 0o600)
     db.execute('CREATE TABLE IF NOT EXISTS cache (plate TEXT PRIMARY KEY, fetched REAL, payload TEXT)')
     db.execute('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY, plate TEXT, observed REAL, last_seen REAL, hash TEXT, payload TEXT)')
     db.execute('CREATE INDEX IF NOT EXISTS observation_plate ON observations(plate, observed)')
     db.execute('CREATE TABLE IF NOT EXISTS selections (plate TEXT PRIMARY KEY, context TEXT)')
-    return db
+    try:
+        with db: yield db
+    finally: db.close()
 
 def fetch_rows(dataset, label, filters):
     rows = []
@@ -244,6 +277,8 @@ def source_statuses(sections, reasons):
             for key, rows in sections.items()}
 
 def remember(result):
+    if CURRENT_USER.get() is not None and (result.get('warnings') or any(rows is None for rows in result['sections'].values())):
+        return  # An outage is not a new retained vehicle version.
     plate = result['plate']
     payload = json.dumps({'sections': result['sections'], 'sources': result['sources'], 'selection': result.get('selection', {})}, sort_keys=True, ensure_ascii=False)
     canonical = {key: sorted((json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows)) if rows is not None else None for key, rows in result['sections'].items()}
@@ -257,6 +292,8 @@ def remember(result):
         else:
             db.execute('INSERT INTO observations (plate, observed, last_seen, hash, payload) VALUES (?,?,?,?,?)',
                        (plate, result['fetched_at'], result['fetched_at'], digest, payload))
+        if CURRENT_USER.get() is not None:
+            db.execute('DELETE FROM observations WHERE plate=? AND id NOT IN (SELECT id FROM observations WHERE plate=? ORDER BY observed DESC,id DESC LIMIT 4)', (plate,plate))
 
 def changes_between(before, after):
     changes = []
@@ -284,7 +321,7 @@ def history(plate, full=False):
             event['data'] = payload
         events.append(event)
         previous.update({key: rows for key, rows in payload['sections'].items() if rows is not None})
-    return {'plate': plate, 'observations': events, 'note': 'Eigen waarnemingen sinds het opzoeken in deze app; geen gereconstrueerde historie van vóór die tijd.'}
+    return {'plate': plate, 'observations': events, 'note': 'Bewaarde eigen waarnemingen; geen gereconstrueerde historie. Per gebruiker: huidige versie plus maximaal drie oudere versies.'}
 
 def archive_context(result):
     """Expose a saved positive snapshot separately; never fill live fields with it."""
@@ -405,7 +442,7 @@ def lookup(plate, refresh=False, selection=None):
             except reports.ReportError as exc:
                 sections[key]=None;reasons[key]=str(exc);warnings.append(reports.PROVIDERS[key]['label']+': '+str(exc))
     try:
-        sections['modelfotos'], reasons['modelfotos'] = photos.find((sections.get('voertuig') or [{}])[0], sections.get('eu_model') or [], DATA)
+        sections['modelfotos'], reasons['modelfotos'] = photos.find((sections.get('voertuig') or [{}])[0], sections.get('eu_model') or [], storage_dir())
     except photos.PhotoError as exc:
         sections['modelfotos'] = None
         reasons['modelfotos'] = str(exc)
@@ -421,7 +458,7 @@ def lookup(plate, refresh=False, selection=None):
     result['history'] = history(plate)
     return archive_context(result)
 
-def application(environ, start_response):
+def _application(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET')
     path = environ.get('PATH_INFO', '/')
     status = 200
@@ -432,7 +469,7 @@ def application(environ, start_response):
         if method not in ('GET','HEAD') and not (path.startswith('/api/reports/') and method in ('POST','DELETE')):
             raise LookupError('Methode niet toegestaan.', 405)
         if path == '/health':
-            body = b'{"status":"ok","version":"0.7.0"}'
+            body = b'{"status":"ok","version":"0.9.0"}'
         elif path.startswith('/api/reports/'):
             parts=path.removeprefix('/api/reports/').split('/');plate=normalize_identifier(parts[0])
             if method in ('POST','DELETE'):
@@ -444,18 +481,18 @@ def application(environ, start_response):
                     if not 0<size<9_000_000:raise ValueError('Gebruik een PDF van maximaal 6 MB.')
                     value=json.loads(environ['wsgi.input'].read(size))
                     raw=base64.b64decode(value['data'],validate=True)
-                    reports.save_document(DATA,plate,value['name'],raw)
+                    reports.save_document(storage_dir(),plate,value['name'],raw)
                 elif method=='DELETE':
                     if len(parts)!=2:raise ValueError('Rapport-ID ontbreekt.')
-                    reports.document(DATA,plate,parts[1],delete=True)
-                body=json.dumps(reports.documents(DATA,plate),ensure_ascii=False).encode()
+                    reports.document(storage_dir(),plate,parts[1],delete=True)
+                body=json.dumps(reports.documents(storage_dir(),plate),ensure_ascii=False).encode()
             except FileNotFoundError as exc:raise LookupError(str(exc),404) from exc
             except (ValueError,KeyError,TypeError) as exc:raise LookupError(str(exc),400) from exc
             headers.append(('Cache-Control','no-store'))
         elif path.startswith('/api/report-file/'):
             parts=path.removeprefix('/api/report-file/').split('/')
             if len(parts)!=2:raise LookupError('Rapport niet gevonden.',404)
-            try:row,body=reports.document(DATA,normalize_identifier(parts[0]),parts[1])
+            try:row,body=reports.document(storage_dir(),normalize_identifier(parts[0]),parts[1])
             except FileNotFoundError as exc:raise LookupError(str(exc),404) from exc
             content_type='application/pdf';headers.extend([('Content-Disposition',"attachment; filename=\"rapport.pdf\"; filename*=UTF-8''"+quote(row['name'],safe='')),('Cache-Control','no-store')])
         elif path=='/api/report-options':
@@ -465,7 +502,7 @@ def application(environ, start_response):
             except reports.ReportError as exc:raise LookupError(str(exc)) from exc
             headers.append(('Cache-Control','no-store'))
         elif path.startswith('/api/photo/'):
-            try: body, content_type = photos.media(path.removeprefix('/api/photo/'), DATA)
+            try: body, content_type = photos.media(path.removeprefix('/api/photo/'), storage_dir())
             except FileNotFoundError as exc: raise LookupError(str(exc), 404) from exc
             except photos.PhotoError as exc: raise LookupError(str(exc)) from exc
             headers.append(('Cache-Control', 'private, max-age=86400'))
@@ -513,6 +550,113 @@ def application(environ, start_response):
     reason = {200:'OK',400:'Bad Request',404:'Not Found',405:'Method Not Allowed',500:'Internal Server Error',503:'Service Unavailable'}[status]
     start_response(f'{status} {reason}', headers)
     return [b'' if method == 'HEAD' else body]
+
+def json_input(environ):
+    if environ.get('CONTENT_TYPE','').split(';')[0] != 'application/json': raise accounts.AccountError('Gebruik JSON.')
+    try:
+        size = int(environ.get('CONTENT_LENGTH','0'))
+        if not 0 < size <= 100_000: raise ValueError()
+        data = json.loads(environ['wsgi.input'].read(size))
+        if not isinstance(data,dict): raise ValueError()
+        return data
+    except (ValueError,TypeError,KeyError): raise accounts.AccountError('Ongeldige invoer.')
+
+def account_routes(environ, user, token):
+    path = environ.get('PATH_INFO','/'); method = environ.get('REQUEST_METHOD','GET'); issued = None
+    if path == '/auth/state' and method == 'GET':
+        with accounts.database(DATA) as db: setup = not db.execute('SELECT 1 FROM users LIMIT 1').fetchone()
+        return {'setup':setup,'user':user,'csrf':accounts.csrf(token) if user else ''}, issued
+    if path in ('/auth/setup','/auth/login') and method == 'POST':
+        if environ.get('HTTP_X_KC_REQUEST') != '1': raise accounts.AccountError('Ongeldige aanvraag.',403)
+        value=json_input(environ)
+        if path.endswith('setup'):
+            accounts.throttle(DATA,'setup:'+environ.get('REMOTE_ADDR','local'),10)
+            user=accounts.create(DATA,value.get('username'),value.get('password'),role='admin',setup=True,adopt=adopt_legacy)
+            finish_legacy_migration()
+            issued=accounts.issue(DATA,user)
+        else: user,issued=accounts.login(DATA,value.get('username'),value.get('password'),environ.get('REMOTE_ADDR','local'))
+        return {'user':user,'csrf':accounts.csrf(issued)},issued
+    if not user: raise accounts.AccountError('Log in om deze gegevens te bekijken.',401)
+    if path == '/auth/logout' and method == 'POST':
+        with accounts.database(DATA) as db: db.execute('DELETE FROM sessions WHERE hash=?',(accounts.token_hash(token),))
+        return {'ok':True},''
+    if path == '/auth/password' and method == 'POST':
+        value=json_input(environ)
+        if not isinstance(value.get('current_password'),str): raise accounts.AccountError('Vul je huidige wachtwoord in.')
+        accounts.throttle(DATA,'password:'+str(user['id']),10)
+        encoded=accounts.change_password(DATA,user['id'],value.get('password'),old=value['current_password'])
+        issued=accounts.issue(DATA,user,encoded);return {'user':user,'csrf':accounts.csrf(issued)},issued
+    if path.startswith('/auth/users'):
+        if user['role'] != 'admin': raise accounts.AccountError('Alleen beheerders kunnen gebruikers beheren.',403)
+        if path == '/auth/users' and method == 'POST':
+            value=json_input(environ);accounts.create(DATA,value.get('username'),value.get('password'),value.get('role','user'))
+        elif path != '/auth/users' and method == 'POST':
+            try: ident=int(path.removeprefix('/auth/users/'))
+            except ValueError: raise accounts.AccountError('Gebruiker niet gevonden.',404)
+            if ident == user['id']: raise accounts.AccountError('Wijzig je eigen wachtwoord via Mijn account; je kunt jezelf niet uitschakelen.')
+            value=json_input(environ)
+            with accounts.database(DATA) as db:
+                db.execute('BEGIN IMMEDIATE')
+                target=db.execute('SELECT * FROM users WHERE id=?',(ident,)).fetchone()
+                if not target: raise accounts.AccountError('Gebruiker niet gevonden.',404)
+                if 'active' in value:
+                    if not isinstance(value['active'],bool): raise accounts.AccountError('Ongeldige accountstatus.')
+                    if not value['active'] and target['role']=='admin' and target['active'] and db.execute("SELECT count(*) FROM users WHERE role='admin' AND active=1").fetchone()[0]<=1:raise accounts.AccountError('De laatste actieve beheerder kan niet worden uitgeschakeld.')
+                    db.execute('UPDATE users SET active=? WHERE id=?',(int(value['active']),ident));db.execute('DELETE FROM sessions WHERE user_id=?',(ident,))
+            if 'password' in value: accounts.change_password(DATA,ident,value['password'])
+        elif path != '/auth/users' or method != 'GET': raise accounts.AccountError('Methode niet toegestaan.',405)
+        with accounts.database(DATA) as db: users=[accounts.public(row) for row in db.execute('SELECT * FROM users ORDER BY username')]
+        return {'users':users},issued
+    if path == '/api/garage' and method == 'GET':return {'favorites':accounts.favorites(DATA,user['id'])},issued
+    if path.startswith('/api/garage/') and method in ('PUT','DELETE'):
+        plate=normalize_identifier(path.removeprefix('/api/garage/'));value=json_input(environ) if method=='PUT' else {}
+        watch=value.get('watch',len(plate)==6)
+        if not isinstance(watch,bool) or (watch and len(plate)!=6):raise accounts.AccountError('Dagelijkse controles ondersteunen alleen Nederlandse kentekens, geen VIN-providertegoed.')
+        return {'favorites':accounts.favorite(DATA,user['id'],plate,watch,delete=method=='DELETE')},issued
+    if path == '/api/preferences' and method in ('GET','POST'):
+        key=None;value=None
+        if method=='POST':
+            data=json_input(environ);key=data.get('key');value=data.get('value')
+            if key=='recent':
+                if not isinstance(value,list) or len(value)>30:raise accounts.AccountError('Ongeldige recente lijst.')
+                value=[normalize_identifier(item) for item in value]
+            elif isinstance(key,str) and key.startswith('costs:'):
+                key='costs:'+normalize_identifier(key.removeprefix('costs:'))
+                allowed={'km_year','litres_100','fuel_price','kwh_100','electric_price','insurance_month','tax_quarter','maintenance_year','tyres_year','other_year','purchase','resale','years'}
+                if not isinstance(value,dict) or set(value)-allowed or any(not isinstance(v,(str,int,float)) or len(str(v))>64 for v in value.values()):raise accounts.AccountError('Ongeldige begroting.')
+            else:raise accounts.AccountError('Ongeldige voorkeur.')
+        return accounts.preferences(DATA,user['id'],key,value),issued
+    raise accounts.AccountError('Pagina niet gevonden.',404)
+
+def application(environ, start_response):
+    path=environ.get('PATH_INFO','/');method=environ.get('REQUEST_METHOD','GET')
+    if path=='/' or path=='/health' or path.startswith('/static/'):
+        return _application(environ,start_response)
+    headers=[('Content-Type','application/json; charset=utf-8'),('Cache-Control','no-store'),('X-Content-Type-Options','nosniff'),('Referrer-Policy','same-origin')]
+    try:
+        accounts.origin(environ)
+        user,token=accounts.session(DATA,environ)
+        public=path in ('/auth/state','/auth/login','/auth/setup')
+        if not public and not user:raise accounts.AccountError('Log in om deze gegevens te bekijken.',401)
+        query=parse_qs(environ.get('QUERY_STRING',''))
+        mutable=method not in ('GET','HEAD') or (path.startswith(('/api/vehicle/','/api/vin/')) and ('selection' in query or 'refresh' in query))
+        if mutable and not public:
+            if not hmac.compare_digest(environ.get('HTTP_X_CSRF_TOKEN',''),accounts.csrf(token)):raise accounts.AccountError('Sessiecontrole mislukt. Log opnieuw in.',403)
+        if path.startswith('/auth/') or path.startswith('/api/garage') or path=='/api/preferences':
+            data,issued=account_routes(environ,user,token)
+            if issued is not None:headers.append(('Set-Cookie',accounts.cookie(issued,environ)))
+            body=json.dumps(data,ensure_ascii=False).encode();status=200
+        else:
+            context=CURRENT_USER.set(user['id'])
+            try:return _application(environ,start_response)
+            finally:CURRENT_USER.reset(context)
+    except (accounts.AccountError,LookupError) as exc:
+        status=exc.status;body=json.dumps({'error':str(exc)},ensure_ascii=False).encode()
+    except Exception:
+        status=500;body=b'{"error":"Er ging iets mis. Probeer het opnieuw."}'
+    headers.append(('Content-Length',str(len(body))))
+    start_response(str(status)+' '+{200:'OK',400:'Bad Request',401:'Unauthorized',403:'Forbidden',404:'Not Found',405:'Method Not Allowed',409:'Conflict',429:'Too Many Requests',500:'Internal Server Error'}[status],headers)
+    return [b'' if method=='HEAD' else body]
 
 if __name__ == '__main__':
     from wsgiref.simple_server import make_server

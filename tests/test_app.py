@@ -19,7 +19,7 @@ class AppTests(unittest.TestCase):
         self.temp.cleanup()
     def request(self, path, method='GET'):
         statuses=[]
-        body=b''.join(app.application({'PATH_INFO':path,'REQUEST_METHOD':method,'QUERY_STRING':''},lambda s,h:statuses.append((s,h))))
+        body=b''.join(app._application({'PATH_INFO':path,'REQUEST_METHOD':method,'QUERY_STRING':''},lambda s,h:statuses.append((s,h))))
         return statuses[0], body
     def test_photo_endpoint_binary_and_missing(self):
         with patch('app.photos.media',return_value=(b'photo','image/jpeg')):

@@ -50,7 +50,7 @@ class ReportTests(unittest.TestCase):
    raw=json.dumps(body).encode() if body else b'';statuses=[]
    env={'PATH_INFO':path,'REQUEST_METHOD':method,'QUERY_STRING':'','CONTENT_TYPE':'application/json','CONTENT_LENGTH':str(len(raw)),'wsgi.input':io.BytesIO(raw),'HTTP_HOST':'localhost'}
    if origin:env['HTTP_ORIGIN']=origin
-   result=b''.join(app.application(env,lambda s,h:statuses.append((s,h))))
+   result=b''.join(app._application(env,lambda s,h:statuses.append((s,h))))
    return statuses[0],result
   with tempfile.TemporaryDirectory() as root,patch.object(app,'DATA',Path(root)):
    (status,_),body=call('/api/reports/AB123C','POST',{'name':'test.pdf','data':base64.b64encode(b'%PDF-1.7 test').decode()});self.assertEqual(status,'200 OK');row=json.loads(body)[0]

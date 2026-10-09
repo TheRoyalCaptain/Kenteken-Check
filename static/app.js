@@ -51,14 +51,14 @@ const GROUPS = {
   'Gewichten & trekvermogen':['massa_ledig_voertuig','massa_rijklaar','toegestane_maximum_massa_voertuig','technische_max_massa_voertuig','maximum_massa_trekken_ongeremd','maximum_trekken_massa_geremd','maximum_massa_samenstelling'],
   'Afmetingen & indeling':['lengte','breedte','hoogte_voertuig','wielbasis','aantal_deuren','aantal_wielen','aantal_zitplaatsen','aantal_rolstoelplaatsen']
 };
-const TABS = [['overzicht','Overzicht'],['archief','Archief & status'],['aankoop','Aankoopcheck'],['kosten','Kostenplanner'],['dekking','Informatiedekking'],['fotos','Foto’s'],['rapporten','Rapporten'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
+const TABS = [['overzicht','Overzicht'],['archief','Archief & status'],['versies','Versies'],['aankoop','Aankoopcheck'],['kosten','Kostenplanner'],['dekking','Informatiedekking'],['fotos','Foto’s'],['rapporten','Rapporten'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
 let current = null, activeTab = 'overzicht', requestId = 0, comparisons = [];
 function readList(key) {
-  try {const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&/^[A-Z0-9]{6}$/.test(x)).slice(0,30):[];} catch {return [];}
+  return key==='kc-recent'?(accountPreferences.recent||[]):[];
 }
 let favorites=readList('kc-favorites'), recent=readList('kc-recent');
 function message(text, cls='') {$('message').textContent=text;$('message').className=cls;}
-function saveList(key, list) {try{localStorage.setItem(key,JSON.stringify(list));}catch{message('Je browser kon dit niet bewaren.','warning');}}
+function saveList(key, list) {if(key==='kc-recent')persistPreference('recent',list);else if(key.startsWith('kc-costs-'))persistPreference('costs:'+key.slice(9),list);}
 function label(key) {return LABELS[key]||key.replace(/_dt$/,'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());}
 function present(value) {return value!==undefined && value!==null && value!=='';}
 function dateValue(value) {
@@ -114,9 +114,10 @@ function garage() {
     if(!list.length){box.append(element('span',isFav?'Nog geen favorieten.':'Nog geen recente zoekopdrachten.','empty'));continue;}
     box.append(element('span',isFav?'Favorieten':'Recent','empty'));
     for(const plate of list){const chip=element('span',undefined,'chip'),open=element('button',plate);open.type='button';open.addEventListener('click',()=>search(plate));chip.append(open);
-      if(isFav){const remove=element('button','×','remove');remove.setAttribute('aria-label',`Verwijder ${plate} uit favorieten`);remove.addEventListener('click',()=>{favorites=favorites.filter(x=>x!==plate);saveList('kc-favorites',favorites);garage();favoriteButton();});chip.append(remove);}box.append(chip);
+      if(isFav){const remove=element('button','×','remove');remove.setAttribute('aria-label',`Verwijder ${plate} uit favorieten`);remove.addEventListener('click',()=>changeFavorite(plate,true).catch(error=>message(error.message,'error')));chip.append(remove);}box.append(chip);
     }
   }
+  watchView();
 }
 function favoriteButton(){if(current){const saved=favorites.includes(current.plate);$('favorite').textContent=saved?'★ Bewaard':'☆ Bewaren';$('favorite').setAttribute('aria-pressed',String(saved));}}
 function vehicle(){return current.sections.voertuig?.[0]||{};}
@@ -137,6 +138,11 @@ function archiveView(query=''){
  const grid=element('div',undefined,'panel-grid');let found=0;
  for(const [key,rows]of Object.entries(saved.sections)){if(!rows?.length)continue;if(query&&!rows.some(row=>Object.entries(row).some(([field,value])=>(field+' '+rawValue(value)).toLowerCase().includes(query))))continue;grid.append(rawPanel(key,query,saved));found++;}
  if(found){out.append(element('p','ARCHIEF · onderstaande velden zijn bewaard en niet actueel bevestigd.','notice'),grid);}return out;
+}
+function versionView(){
+ const out=element('div');out.append(element('p','Huidige bewaarde gegevens en maximaal drie oudere versies. Elke versie bevat de ontvangen datasets van dat moment. Een datum hier is een waarneming, geen bewezen datum van een voertuigwijziging. Storingen worden niet als nieuwe versie bewaard.','notice'));
+ const loading=element('p','Versies ophalen…','empty');out.append(loading);const plate=current.plate,owner=accountState.user?.id;
+ (async()=>{try{const data=await accountApi('/api/history/'+plate);if(!out.isConnected||owner!==accountState.user?.id)return;loading.remove();const rows=[...data.observations].reverse();if(!rows.length)out.append(element('p','Nog geen succesvolle versie bewaard.','empty'));for(const [index,row]of rows.entries()){const record=element('details',undefined,'panel record');record.append(element('summary',(index===0?'Huidige bewaarde versie':'Oudere versie '+index)+' · '+new Date(row.observed_at*1000).toLocaleString('nl-NL')));record.append(element('p','Laatst ongewijzigd gezien: '+new Date(row.last_seen_at*1000).toLocaleString('nl-NL'),'empty'));for(const key of Object.keys(row.data.sections))record.append(rawPanel(key,'',row.data));out.append(record);}}catch(error){if(out.isConnected)loading.textContent=error.message;}})();return out;
 }
 function fuelText(){return current.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';}
 function importText(v){const a=dateValue(v.datum_eerste_toelating),b=dateValue(v.datum_eerste_tenaamstelling_in_nederland);return a&&b?(b>a?'Ja':'Nee'):'—';}
@@ -174,7 +180,7 @@ function coverageView(){
  for(const [title,keys,reason]of topics){const states=keys.map(key=>sourceState(key)),found=states.filter(x=>x.status==='available').length,failed=states.some(x=>x.status==='error'),state=found?(found<keys.length?'Deels beschikbaar':'Beschikbaar'):failed?'Ophalen mislukt':'Niet beschikbaar';const row=element('div',undefined,'record'),heading=element('div',undefined,'check-heading');heading.append(element('strong',title),element('span',state,'status-pill '+(found?'good':failed?'warn':'')));row.append(heading,element('p',reason,'empty'));for(const key of keys)row.append(element('small',(current.sources[key]?.label||label(key))+': '+sourceState(key).reason,'coverage-source'));p.append(row);}
  box.append(p);return box;
 }
-function costInputs(){try{const value=JSON.parse(localStorage.getItem('kc-costs-'+current.plate)||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
+function costInputs(){return accountPreferences['costs:'+current.plate]||{};}
 function costView(){
  const box=element('div');box.append(element('p','Persoonlijke begroting, geen externe waardering of belastingberekening. Vul je eigen praktijkverbruik, prijzen en bedragen in. Leeg is onbekend; vul 0 in als een post niet van toepassing is. Hybride verbruik is afhankelijk van je rij- en laadgedrag.','notice'));
  const p=panel('Jouw invoer'),form=element('form',undefined,'source-form cost-form'),saved=costInputs(),inputs={},result=panel('Berekende kosten');
@@ -185,7 +191,7 @@ function costView(){
   const body=element('div',undefined,'panel-body');body.append(rowList({'Per maand':euro(budget.month),'Per jaar':euro(budget.year),'Per kilometer':budget.per_km===null?'Niet beschikbaar (0 km/jaar)':euro(budget.per_km),'Brandstof per jaar':euro(budget.annual.fuel),'Stroom per jaar':euro(budget.annual.electric),'Verzekering per jaar':euro(budget.annual.insurance),'Belasting per jaar':euro(budget.annual.tax),'Onderhoud per jaar':euro(budget.annual.maintenance),'Banden per jaar':euro(budget.annual.tyres),'Overige kosten per jaar':euro(budget.annual.other),'Afschrijving per jaar':euro(budget.annual.depreciation)}));result.append(body);
  }
  for(const [key,title]of fields){const lab=element('label',title),input=element('input');input.type='number';input.inputMode='decimal';input.min=key==='years'?'0.01':'0';input.max='1000000000';input.step='any';input.id='cost-'+key;input.value=saved[key]??'';inputs[key]=input;input.addEventListener('input',update);lab.append(input);form.append(lab);}
- form.addEventListener('submit',e=>e.preventDefault());p.append(form);note(p,'Alle invoer blijft alleen in deze browser, per kenteken. RDW-testverbruik wordt niet automatisch als praktijkverbruik overgenomen.');const clear=element('button','Invoer wissen','panel-action');clear.type='button';clear.addEventListener('click',()=>{for(const input of Object.values(inputs))input.value='';update();});p.append(clear);box.append(p,result);update();note(box,'Formule: km/jaar × verbruik/100 × energieprijs, plus vaste kosten en (aankoop − verkoop)/bezitsduur. Financiering, rente en onverwachte reparaties zitten alleen in het totaal als je die zelf bij overige kosten invult. Geen actuele belastingtarieven of geschatte marktprijzen ingebouwd.');return box;
+ form.addEventListener('submit',e=>e.preventDefault());p.append(form);note(p,'Alle invoer wordt in je account opgeslagen, per kenteken. RDW-testverbruik wordt niet automatisch als praktijkverbruik overgenomen.');const clear=element('button','Invoer wissen','panel-action');clear.type='button';clear.addEventListener('click',()=>{for(const input of Object.values(inputs))input.value='';update();});p.append(clear);box.append(p,result);update();note(box,'Formule: km/jaar × verbruik/100 × energieprijs, plus vaste kosten en (aankoop − verkoop)/bezitsduur. Financiering, rente en onverwachte reparaties zitten alleen in het totaal als je die zelf bij overige kosten invult. Geen actuele belastingtarieven of geschatte marktprijzen ingebouwd.');return box;
 }
 function table(columns, rows){
   const wrap=element('div',undefined,'table-wrap'),t=element('table'),thead=element('thead'),tr=element('tr');
@@ -284,7 +290,7 @@ function historyView(){
   for(const event of events){const r=element('div',undefined,'timeline-event');r.append(element('span',event.date,'timeline-date'),element('strong',event.title),element('p',event.detail),element('small',event.source));p.append(r);}box.append(p);
   const observations=current.history?.observations||[],o=panel('Eigen waarnemingen & wijzigingen',observations.length);note(o,'Deze historie ontstaat vanaf het opzoeken in deze app. Een waarnemingsdatum is geen bewezen datum van een voertuigwijziging. Storingen worden niet als voertuigwijzigingen weergegeven.');
   if(!observations.length)note(o,'Nog geen opgeslagen waarnemingen.');
-  for(const r of [...observations].reverse()){const record=element('details',undefined,'record'),head=element('summary');head.append(element('span',new Date(r.observed_at*1000).toLocaleString('nl-NL')),element('span',r.kind==='first_observation'?'Eerste waarneming':r.changes.length?`${r.changes.length} gewijzigde datasets`:'Aanvullende broninformatie','record-meta'));record.append(head);
+  for(const r of [...observations].reverse()){const record=element('details',undefined,'record'),head=element('summary');head.append(element('span',new Date(r.observed_at*1000).toLocaleString('nl-NL')),element('span',r.kind==='first_observation'?'Oudst bewaarde waarneming':r.changes.length?`${r.changes.length} gewijzigde datasets`:'Aanvullende broninformatie','record-meta'));record.append(head);
     for(const change of r.changes){const detail=element('details',undefined,'change-detail');detail.append(element('summary',current.sources[change.source]?.label||change.source),element('pre',JSON.stringify({voor:change.before,na:change.after},null,2)));record.append(detail);}o.append(record);}box.append(o);
   const unavailable=panel('Andere historische gegevens');for(const [key,source]of Object.entries(current.sources).filter(([,s])=>s.scope==='historie')){const r=element('div',undefined,'record');r.append(element('strong',source.label),element('p',sourceState(key).reason,'empty'));unavailable.append(r);}box.append(unavailable);return box;
 }
@@ -377,6 +383,7 @@ function renderDetails(){
   else if(activeTab==='kosten')out.append(costView());
   else if(activeTab==='dekking')out.append(coverageView());
   else if(activeTab==='archief')out.append(archiveView());
+  else if(activeTab==='versies')out.append(versionView());
   else if(activeTab==='fotos')out.append(photoView());
   else if(activeTab==='energie')out.append(energyView());
   else if(activeTab==='keuringen')out.append(inspectionView());
@@ -428,10 +435,12 @@ $('search').addEventListener('submit',e=>{e.preventDefault();search($('plate').v
 $('refresh').addEventListener('click',()=>{if(current)search(current.plate,true);});
 $('field-query').addEventListener('input',renderDetails);
 $('tabs').addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const tabs=[...$('tabs').children],i=tabs.indexOf(document.activeElement);if(i<0)return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;tabs[next].focus();tabs[next].click();});
-$('favorite').addEventListener('click',()=>{if(!current)return;const p=current.plate;favorites=favorites.includes(p)?favorites.filter(x=>x!==p):[p,...favorites].slice(0,30);saveList('kc-favorites',favorites);garage();favoriteButton();});
+$('favorite').addEventListener('click',async()=>{if(!current)return;const plate=current.plate;$('favorite').disabled=true;try{await changeFavorite(plate,favorites.includes(plate));}catch(error){message(error.message,'error');}finally{$('favorite').disabled=false;}});
 $('export').addEventListener('click',()=>{if(!current)return;const exported=current.lookup_type==='vin'?current:{...current,purchase_check:KCInsights.assess(current),personal_budget:{provenance:'Eigen browserinvoer, geen externe voertuiggegevens',inputs:costInputs(),calculation:KCInsights.costs(costInputs())}};const url=URL.createObjectURL(new Blob([JSON.stringify(exported,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`${current.lookup_type==='vin'?'vin':'kenteken'}-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 $('print').addEventListener('click',()=>{if(!current)return;const previous=activeTab,query=$('field-query').value;activeTab='overzicht';$('field-query').value='';renderDetails();window.print();activeTab=previous;$('field-query').value=query;renderDetails();});
 $('compare').addEventListener('click',()=>{if(!current)return;comparisons=[...comparisons.filter(x=>x.plate!==current.plate),current].slice(-2);renderComparison();$('comparison').scrollIntoView({behavior:'smooth'});});
 $('history-export').addEventListener('click',async()=>{if(!current)return;try{const response=await fetch('/api/history/'+current.plate);if(!response.ok)throw new Error('Historie kon niet worden opgehaald.');const data=await response.json(),url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=element('a');a.href=url;a.download=`historie-${current.plate}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){message(e.message,'error');}});
 $('close-comparison').addEventListener('click',()=>{$('comparison').hidden=true;comparisons=[];});
-garage();
+$('logout').addEventListener('click',async()=>{try{await accountApi('/auth/logout','POST',{});signedOut();await startAccounts();}catch(error){message(error.message,'error');}});
+$('account-button').addEventListener('click',async()=>{$('account-panel').hidden=!$('account-panel').hidden;if(!$('account-panel').hidden)await accountView();});
+startAccounts();

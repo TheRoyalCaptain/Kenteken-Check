@@ -51,7 +51,7 @@ const GROUPS = {
   'Gewichten & trekvermogen':['massa_ledig_voertuig','massa_rijklaar','toegestane_maximum_massa_voertuig','technische_max_massa_voertuig','maximum_massa_trekken_ongeremd','maximum_trekken_massa_geremd','maximum_massa_samenstelling'],
   'Afmetingen & indeling':['lengte','breedte','hoogte_voertuig','wielbasis','aantal_deuren','aantal_wielen','aantal_zitplaatsen','aantal_rolstoelplaatsen']
 };
-const TABS = [['overzicht','Overzicht'],['aankoop','Aankoopcheck'],['kosten','Kostenplanner'],['dekking','Informatiedekking'],['fotos','Foto’s'],['rapporten','Rapporten'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
+const TABS = [['overzicht','Overzicht'],['archief','Archief & status'],['aankoop','Aankoopcheck'],['kosten','Kostenplanner'],['dekking','Informatiedekking'],['fotos','Foto’s'],['rapporten','Rapporten'],['techniek','Techniek'],['energie','Motor & energie'],['keuringen','Keuringen'],['recalls','Terugroepacties'],['extra','Extra'],['aanvullend','Aanvullende bronnen'],['typegoedkeuring','Typegoedkeuring'],['historie','Historie'],['bronnen','Bronnen'],['alle','Alle ontvangen data']];
 let current = null, activeTab = 'overzicht', requestId = 0, comparisons = [];
 function readList(key) {
   try {const v=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&/^[A-Z0-9]{6}$/.test(x)).slice(0,30):[];} catch {return [];}
@@ -120,11 +120,31 @@ function garage() {
 }
 function favoriteButton(){if(current){const saved=favorites.includes(current.plate);$('favorite').textContent=saved?'★ Bewaard':'☆ Bewaren';$('favorite').setAttribute('aria-pressed',String(saved));}}
 function vehicle(){return current.sections.voertuig?.[0]||{};}
+function registrationView(){
+ const box=panel('Registratie, export & sloop'),v=vehicle(),live=!!current.sections.voertuig?.length,failed=current.sections.voertuig===null;
+ note(box,live?'Een voertuigrecord is gevonden in de actuele openbare dataset.':failed?'De actuele voertuigbron kon niet worden opgehaald. Dit is een bronstoring, geen bewijs dat het kenteken is vervallen.':'Geen voertuigrecord in de actuele openbare dataset gevonden. Dit kan een voormalig kenteken zijn; de oorzaak is niet vastgesteld.');
+ const body=element('div',undefined,'panel-body');body.append(rowList({'Actuele gegevens':live?'Gevonden':failed?'Ophalen mislukt':'Niet beschikbaar','Exportindicator':live&&['Ja','Nee'].includes(v.export_indicator)?v.export_indicator:'Niet beschikbaar','Sloopstatus':'Niet beschikbaar','Schorsingsstatus':'Niet beschikbaar','Diefstalstatus':'Niet beschikbaar'}));box.append(body);
+ note(box,'RDW vermeldt dat gesloopte voertuigen niet in dit register staan en exportinformatie tot twee jaar daarna beschikbaar kan zijn. Een ontbrekend record bewijst geen sloop, export, schorsing of diefstal.');
+ if(current.archive){note(box,'Er zijn eerder bewaarde voertuiggegevens. Deze staan apart als archief en worden niet als actuele APK, verzekering of status gebruikt.');const open=element('button','Bekijk laatst bekende gegevens','panel-action');open.type='button';open.addEventListener('click',()=>$('tab-archief').click());box.append(open);}
+ else if(!live)note(box,'Geen eerder bewaard voertuigrecord voor dit kenteken. Oudere historie kan niet uit een lege actuele registratie worden gereconstrueerd.');
+ return box;
+}
+function archiveView(query=''){
+ const out=element('div'),saved=current.archive;
+ if(!query)out.append(registrationView());
+ if(!saved){if(!query)out.append(element('p','Het lokale archief begint bij eerdere zoekopdrachten in deze app. Het bevat geen landelijke verzameling van oude kentekens. Bij een actueel voertuig staan je waarnemingen bij Historie.','notice'));return out;}
+ if(!query){out.append(element('p',saved.provenance,'warning'));const p=panel('Laatst bekende voertuiggegevens');note(p,'Waarneming: '+new Date(saved.observed_at*1000).toLocaleString('nl-NL')+' · Laatst in deze ongewijzigde snapshot gezien: '+new Date(saved.last_seen_at*1000).toLocaleString('nl-NL'));p.append(element('div',[saved.sections.voertuig?.[0]?.merk,saved.sections.voertuig?.[0]?.handelsbenaming].filter(Boolean).join(' '),'record'));out.append(p);}
+ const grid=element('div',undefined,'panel-grid');let found=0;
+ for(const [key,rows]of Object.entries(saved.sections)){if(!rows?.length)continue;if(query&&!rows.some(row=>Object.entries(row).some(([field,value])=>(field+' '+rawValue(value)).toLowerCase().includes(query))))continue;grid.append(rawPanel(key,query,saved));found++;}
+ if(found){out.append(element('p','ARCHIEF · onderstaande velden zijn bewaard en niet actueel bevestigd.','notice'),grid);}return out;
+}
 function fuelText(){return current.sections.brandstof?.map(x=>x.brandstof_omschrijving).filter(Boolean).join(' + ')||'—';}
 function importText(v){const a=dateValue(v.datum_eerste_toelating),b=dateValue(v.datum_eerste_tenaamstelling_in_nederland);return a&&b?(b>a?'Ja':'Nee'):'—';}
 function apkDays(v){const d=dateValue(v.vervaldatum_apk);if(!d||Number.isNaN(d.getTime()))return null;const today=new Date();today.setHours(0,0,0,0);return Math.round((d-today)/86400000);}
 function overview(){
   const grid=element('div',undefined,'panel-grid'),v=vehicle();
+  grid.append(registrationView());
+  if(current.archive){const saved=panel('Historische voertuigidentiteit'),v=current.archive.sections.voertuig?.[0]||{};note(saved,[v.merk,v.handelsbenaming].filter(Boolean).join(' ')+' · ARCHIEF');note(saved,'Laatst gezien: '+new Date(current.archive.last_seen_at*1000).toLocaleString('nl-NL')+'. De oorspronkelijke gegevens staan bij Archief & status.');grid.append(saved);}
   const summary=panel('Aankoopcheck'),assessment=KCInsights.assess(current),attention=assessment.checks.filter(x=>x.status==='attention'),unknown=assessment.checks.filter(x=>x.status==='unknown');
   note(summary,`${attention.length} aandachtspunten · ${unknown.length} onbekende controles. Geen oordeel over schadevrijheid of betrouwbaarheid.`);
   for(const check of attention)note(summary,check.title+': '+check.value);
@@ -151,7 +171,7 @@ function coverageView(){
  const box=element('div');box.append(element('p','Beschikbaarheid per onderwerp, niet een score voor de auto. Gevonden records betekenen niet dat een geschiedenis volledig is.','notice'));
  const topics=[['Registratie & techniek',['voertuig','brandstof','assen'],'Ontvangen officiële registratiegegevens, geen fysieke voertuiginspectie.'],['APK-meldingen & gebreken',['keuringen','gebreken'],'Alle ontvangen openbare meldingen; dit is geen volledige reparatiehistorie.'],['Terugroepacties',['terugroepstatus','terugroepdetails'],'Kentekengekoppelde registraties en actiedetails.'],['Europese modelinformatie',['eu_model'],'Zelf gekozen model/generatie; geen bevestigde fabrieksuitrusting.'],['Veiligheids- & praktijktests',['eu_euroncap','eu_greenncap','eu_adac'],'Zelf gekoppelde modelrapporten, geen historie van dit voertuig.'],['Voorbeeldfoto’s',['modelfotos'],'Model-/generatie-/kleurmetadata, niet deze specifieke auto.'],['Externe waardegegevens',['extern_waarde'],'Alleen een ontvangen leveranciersschatting, geen officiële marktwaarde.'],['Volledige kilometerhistorie',['tellerhistorie'],'Een tellerstandoordeel is geen reeks kilometerstanden.'],['Volledige eigenaarshistorie',['eigenaarhistorie'],'Een laatste tenaamstelling is geen eigenaarstelling of eigenaarslijst.'],['Schadehistorie',['schadehistorie'],'WOK is geen volledige schadehistorie; geen bewijs van schadevrijheid.'],['Onderhoudshistorie',['onderhoudshistorie'],'APK is geen onderhoudsboekje.'],['Advertentiehistorie',['advertentiehistorie'],'Geen gereconstrueerde verkoopprijzen of advertenties.'],['Diefstalhistorie',[],'Geen geverifieerde diefstalbron aangesloten.'],['Fabrieksopties & exacte uitvoering',[],'Een modelcatalogus is geen VIN-bouwlijst of bewijs van gemonteerde opties.']];
  const p=panel('Wat is voor dit kenteken beschikbaar?');
- for(const [title,keys,reason]of topics){const states=keys.map(sourceState),found=states.filter(x=>x.status==='available').length,failed=states.some(x=>x.status==='error'),state=found?(found<keys.length?'Deels beschikbaar':'Beschikbaar'):failed?'Ophalen mislukt':'Niet beschikbaar';const row=element('div',undefined,'record'),heading=element('div',undefined,'check-heading');heading.append(element('strong',title),element('span',state,'status-pill '+(found?'good':failed?'warn':'')));row.append(heading,element('p',reason,'empty'));for(const key of keys)row.append(element('small',(current.sources[key]?.label||label(key))+': '+sourceState(key).reason,'coverage-source'));p.append(row);}
+ for(const [title,keys,reason]of topics){const states=keys.map(key=>sourceState(key)),found=states.filter(x=>x.status==='available').length,failed=states.some(x=>x.status==='error'),state=found?(found<keys.length?'Deels beschikbaar':'Beschikbaar'):failed?'Ophalen mislukt':'Niet beschikbaar';const row=element('div',undefined,'record'),heading=element('div',undefined,'check-heading');heading.append(element('strong',title),element('span',state,'status-pill '+(found?'good':failed?'warn':'')));row.append(heading,element('p',reason,'empty'));for(const key of keys)row.append(element('small',(current.sources[key]?.label||label(key))+': '+sourceState(key).reason,'coverage-source'));p.append(row);}
  box.append(p);return box;
 }
 function costInputs(){try{const value=JSON.parse(localStorage.getItem('kc-costs-'+current.plate)||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
@@ -202,12 +222,12 @@ function energyView(){
   for(const row of rows)grid.append(dataPanel(row.brandstof_omschrijving||'Brandstofregistratie',[row]));
   box.append(grid,element('p','Vermogen wordt per brandstofregistratie getoond. Bij hybride voertuigen is dit geen opgeteld systeemvermogen. WLTP-waarden zijn testwaarden, geen gemeten praktijkverbruik.','notice'));return box;
 }
-function sourceState(key) {
-  const rows=current.sections[key];
-  return current.source_status?.[key] || {status:rows===null?'error':rows?.length?'available':'unavailable',row_count:rows?.length||0,reason:rows===null?'Ophalen mislukt.':rows?.length?'Gegevens gevonden.':'Geen gegevens voor dit kenteken gevonden.'};
+function sourceState(key,data=current) {
+  const rows=data.sections[key];
+  return data.source_status?.[key] || {status:rows===null?'error':rows?.length?'available':'unavailable',row_count:rows?.length||0,reason:rows===null?'Ophalen mislukt.':rows?.length?'Gegevens gevonden.':'Geen gegevens voor dit kenteken gevonden.'};
 }
-function statusPill(key) {
-  const state=sourceState(key),n=element('span',state.status==='available'?'Beschikbaar':state.status==='error'?'Ophalen mislukt':'Niet beschikbaar','status-pill '+(state.status==='available'?'good':state.status==='error'?'warn':''));
+function statusPill(key,data=current) {
+  const state=sourceState(key,data),n=element('span',state.status==='available'?(data===current?'Beschikbaar':'Bewaard · archief'):state.status==='error'?'Ophalen mislukt':'Niet beschikbaar','status-pill '+(state.status==='available'?'good':state.status==='error'?'warn':''));
   return n;
 }
 function rawValue(value) {
@@ -216,11 +236,11 @@ function rawValue(value) {
   if(value==='')return '(lege waarde)';
   return typeof value==='object'?JSON.stringify(value,null,2):String(value);
 }
-function rawPanel(key, query='') {
-  const source=current.sources[key],rows=current.sections[key],box=panel(source.label,rows?.length??0);
-  box.querySelector('.panel-head').append(statusPill(key));
+function rawPanel(key, query='',data=current) {
+  const source=data.sources[key]||{label:label(key)},rows=data.sections[key],box=panel(source.label,rows?.length??0);
+  box.querySelector('.panel-head').append(statusPill(key,data));
   if(source.note){note(box,source.note);const credit=element('p',undefined,'panel-note'),link=element('a','Bron: '+source.provider+(source.licence?' · '+source.licence:''));link.href=source.url;link.target='_blank';link.rel='noopener';credit.append(link);box.append(credit);}
-  if(!rows?.length){note(box,sourceState(key).reason);return box;}
+  if(!rows?.length){note(box,sourceState(key,data).reason);return box;}
   const records=rows.map((row,index)=>({row,index,keys:Object.keys(row).filter(k=>!query||(k+' '+(source.fields?.[k]||label(k))+' '+rawValue(row[k])+' '+source.label).toLowerCase().includes(query))})).filter(record=>record.keys.length);
   let cursor=0;const more=element('button','Toon volgende 50 records','secondary');more.type='button';
   const next=()=>{more.remove();const end=Math.min(cursor+50,records.length);for(;cursor<end;cursor++){
@@ -237,6 +257,7 @@ function allView(query=''){
     if(query&&!rows?.some(row=>Object.keys(row).some(k=>(k+' '+(source.fields?.[k]||label(k))+' '+rawValue(row[k])+' '+source.label).toLowerCase().includes(query))))continue;
     grid.append(rawPanel(key,query));matches++;
   }
+  if(current.archive){const archive=archiveView(query);if(archive.children.length){grid.append(archive);matches++;}}
   if(query&&!matches)grid.append(element('p','Geen gegevens gevonden die overeenkomen met je zoekopdracht.','empty'));
   return grid;
 }
@@ -355,6 +376,7 @@ function renderDetails(){
   else if(activeTab==='aankoop')out.append(purchaseView());
   else if(activeTab==='kosten')out.append(costView());
   else if(activeTab==='dekking')out.append(coverageView());
+  else if(activeTab==='archief')out.append(archiveView());
   else if(activeTab==='fotos')out.append(photoView());
   else if(activeTab==='energie')out.append(energyView());
   else if(activeTab==='keuringen')out.append(inspectionView());
@@ -369,10 +391,10 @@ function renderDetails(){
 }
 function render(){
   const v=vehicle(),isVin=current.lookup_type==='vin',days=apkDays(v);$('welcome').hidden=true;$('result').hidden=false;$('result-plate').textContent=current.plate;
-  $('result-plate').classList.toggle('vin-identifier',isVin);$('vehicle-title').textContent=isVin?['VIN-check',v.merk,v.handelsbenaming].filter(Boolean).join(' · '):[v.merk,v.handelsbenaming].filter(Boolean).join(' ')||'Geen actuele voertuigregistratie beschikbaar';
+  $('result-plate').classList.toggle('vin-identifier',isVin);const saved=current.archive?.sections.voertuig?.[0]||{};$('vehicle-title').textContent=isVin?['VIN-check',v.merk,v.handelsbenaming].filter(Boolean).join(' · '):[v.merk,v.handelsbenaming].filter(Boolean).join(' ')||(current.archive?[saved.merk,saved.handelsbenaming,'ARCHIEF'].filter(Boolean).join(' · '):'Geen actuele voertuigregistratie beschikbaar');
   $('vehicle-subtitle').textContent=[v.inrichting,v.eerste_kleur,v.datum_eerste_toelating?.slice(0,4)].filter(Boolean).join(' · ');
   $('timestamp').textContent='Opgehaald '+new Date(current.fetched_at*1000).toLocaleString('nl-NL')+(current.cached?' · cache':' · bijgewerkt');
-  const states=Object.keys(current.sources).map(sourceState),available=states.filter(x=>x.status==='available').length,unavailable=states.filter(x=>x.status==='unavailable').length,errors=states.filter(x=>x.status==='error').length;
+  const states=Object.keys(current.sources).map(key=>sourceState(key)),available=states.filter(x=>x.status==='available').length,unavailable=states.filter(x=>x.status==='unavailable').length,errors=states.filter(x=>x.status==='error').length;
   $('coverage').textContent=`${available} beschikbaar · ${unavailable} niet beschikbaar · ${errors} mislukt`;
   const alerts=$('alerts');alerts.replaceChildren();if(!isVin&&!current.sections.voertuig?.length)alerts.append(element('p','De actuele basisregistratie is niet beschikbaar. Andere bronnen en opgeslagen historie blijven hieronder zichtbaar.','notice'));for(const warning of current.warnings)alerts.append(element('p',warning,'warning'));
   if(v.openstaande_terugroepactie_indicator==='Ja')alerts.append(element('p','Openstaande terugroepactie gemeld. Bekijk het tabblad Terugroepacties.','warning'));

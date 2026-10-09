@@ -45,6 +45,41 @@ class AppTests(unittest.TestCase):
         self.assertEqual(result['source_status']['voertuig']['status'],'unavailable')
         self.assertEqual(result['source_status']['keuringen']['status'],'available')
 
+    def test_missing_registration_keeps_last_positive_snapshot_separate(self):
+        with patch.object(app, 'fetch_dataset', side_effect=lambda key, plate: [{'kenteken':plate,'merk':'TEST','export_indicator':'Nee','vervaldatum_apk':'20270101'}] if key=='voertuig' else []):
+            first=app.lookup('AB123C')
+        with patch.object(app, 'fetch_dataset', return_value=[]):
+            missing=app.lookup('AB123C',True)
+            cached=app.lookup('AB123C')
+        self.assertEqual(missing['sections']['voertuig'],[])
+        self.assertEqual(missing['source_status']['voertuig']['status'],'unavailable')
+        self.assertEqual(missing['archive']['sections']['voertuig'][0]['merk'],'TEST')
+        self.assertEqual(missing['archive']['observed_at'],first['fetched_at'])
+        self.assertEqual(cached['archive'],missing['archive'])
+        self.assertEqual(len(app.history('AB123C')['observations']),2)
+        self.assertNotIn('archive',app.history('AB123C',True)['observations'][-1]['data']['sections'])
+
+    def test_provider_outage_is_not_a_retired_vehicle(self):
+        with patch.object(app, 'fetch_dataset', side_effect=lambda key, plate: [{'kenteken':plate,'merk':'TEST'}] if key=='voertuig' else []):app.lookup('AB123C')
+        with patch.object(app, 'fetch_dataset', side_effect=app.LookupError('Ophalen mislukt')):result=app.lookup('AB123C',True)
+        self.assertIsNone(result['sections']['voertuig'])
+        self.assertEqual(result['source_status']['voertuig']['status'],'error')
+        self.assertEqual(result['archive']['sections']['voertuig'][0]['merk'],'TEST')
+
+    def test_archive_survives_cache_removal_and_does_not_cross_plates(self):
+        saved={'plate':'AB123C','fetched_at':app.time.time()-86400,'sources':{'voertuig':{'label':'Voertuig'}},'sections':{'voertuig':[{'kenteken':'AB123C','merk':'OLD','export_indicator':'Ja'}],'brandstof':[{'custom_nested':{'test':1}}]}}
+        app.remember(saved)
+        app.remember({**saved,'fetched_at':saved['fetched_at']+10,'sections':{'voertuig':[]}})
+        with patch.object(app,'fetch_dataset',return_value=[]):
+            result=app.lookup('AB123C');other=app.lookup('CD456E')
+        self.assertEqual(result['archive']['sections']['brandstof'],saved['sections']['brandstof'])
+        self.assertEqual(result['archive']['sections']['voertuig'][0]['export_indicator'],'Ja')
+        self.assertIsNone(other['archive'])
+
+    def test_live_registration_does_not_use_archive_as_current_data(self):
+        with patch.object(app,'fetch_dataset',side_effect=lambda key,plate:[{'kenteken':plate,'merk':'LIVE'}] if key=='voertuig' else []):result=app.lookup('AB123C')
+        self.assertIsNone(result['archive'])
+
     def test_cache_and_refresh(self):
         def fetch(key,plate):return [{'kenteken':plate,'merk':'TEST'}] if key=='voertuig' else []
         with patch.object(app,'fetch_dataset',side_effect=fetch) as mock:

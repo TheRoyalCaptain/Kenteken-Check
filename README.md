@@ -1,8 +1,18 @@
-# Kenteken Check — 0.8.0
+# Kenteken Check — 0.8.1
 
 Een kentekenwebapp die alle ontvangen gegevens toont, met expliciete beschikbaarheid per bron. Zelf te hosten in Umbrel. De ingebouwde openbare bronnen vereisen geen API-sleutel of betaling.
 
 ## Wat is toegevoegd?
+
+- **Archief & status**: als een actuele RDW-basisregistratie ontbreekt of tijdelijk onbereikbaar is, zoekt de app het meest recente eerder bewaarde positieve voertuigrecord. Alle oorspronkelijke datasets uit diezelfde snapshot blijven apart leesbaar, doorzoekbaar en exporteerbaar, met waarnemingsdatum en laatste bevestiging van die ongewijzigde snapshot. Historische APK, verzekering en exportindicator worden niet in actuele velden teruggezet. Zonder eerdere waarneming blijft het archief expliciet niet beschikbaar.
+
+### Voormalige kentekens: export, sloop en andere statussen
+
+[RDW beschrijft de registerdekking](https://www.rdw.nl/over-rdw/dienstverlening/betaald-toegang-tot-ongevoelige-kentekengegevens): gesloopte voertuigen staan niet in dit register; exportinformatie kan tot twee jaar daarna beschikbaar zijn. Diefstalstatus zit niet in de open databestanden. Een lege actuele basisregistratie betekent daarom **niet** automatisch gesloopt, geëxporteerd, geschorst of gestolen. Een bronstoring krijgt een andere melding. Sloop-, schorsings- en diefstalstatus zijn in deze app niet bevestigd door een aangesloten onafhankelijke bron.
+
+De openbare exportfilter (`hbkz-ufqe`) is een weergave van dezelfde RDW-basisdataset, geen historisch archief. CBS-uitvaltabellen geven totalen, geen individuele oude kentekendossiers. De reeds ondersteunde 123kentekencheck-API vermeldt RDW Open Data als onderliggende bron en is niet geverifieerd als oplossing voor verdwenen voertuigrecords. VWE heeft leveranciers-API’s voor voertuiginformatie, maar er is geen geautoriseerde leveranciersaccount aangesloten of vrij historisch endpoint bevestigd. Andere sites kunnen aanvullende gegevens tonen; de app claimt geen toegang tot hun databases.
+
+Het lokale archief begint bij kentekens die **in deze installatie eerder met voertuiggegevens zijn opgezocht**. Het reconstrueert geen ontbrekende oudere dossiers van nog nooit opgezochte kentekens. Snapshots blijven in de bestaande SQLite-opslag, ook als de korte cache verloopt. Het archief bewijst alleen wat de app toen ontvangen heeft en geen huidige status. Externe PDF-rapporten kunnen per kenteken bij Rapporten worden bewaard; de inhoud wordt niet automatisch als geverifieerde status geïnterpreteerd.
 
 - **Aankoopcheck**: APK-termijn, WOK, overschrijfbaarheid, export, WAM, tellerstandoordeel, terugroepindicator en afgeleide importindicatie. Onbekende controles blijven onbekend; geen commerciële betrouwbaarheidsscore of garantie. Evaluatie gebeurt op de dag van openen en staat in de JSON-export, met bronveld en uitleg.
 - **Kostenplanner**: eigen praktijkverbruik en energieprijzen, kilometers, verzekering, kwartaalbelasting, onderhoud, banden, overige kosten en lineaire afschrijving. Volledig uitgewerkte begroting per jaar, maand en kilometer. Leeg is onbekend; niet van toepassing vul je zelf als 0 in. Geen verzonnen belastingtarieven, dagwaarde of RDW-testverbruik als praktijkmeting. Invoer blijft in deze browser per kenteken en wordt met herkomstlabel mee geëxporteerd.
@@ -31,7 +41,7 @@ Het zijn voorbeeldauto’s, geen foto’s van het opgezochte kenteken. De match 
 
 Elke foto vermeldt auteur, oorspronkelijke bron en licentie. Alleen ondersteunde vrije licenties worden geaccepteerd; bronmetadata blijven volledig in de gegevens en export staan. Afbeeldingen worden via de eigen server geladen. Internettoegang naar `commons.wikimedia.org`, `upload.wikimedia.org` en `thumb.wikimedia.org` is nodig. Zoekresultaten worden 24 uur lokaal gecachet; thumbnails worden lokaal bewaard. **Vernieuwen** ververst voertuiggegevens, maar respecteert deze fotocache. De kleine voorbeeldgalerij is geen volledige foto- of advertentiehistorie.
 
-## Europese modelrapporten en eigen PDF’s (0.8.0)
+## Europese modelrapporten en eigen PDF’s (0.8.1)
 
 **Rapporten** koppelt openbare modelrapporten van Euro NCAP, Green NCAP en ADAC. De app zoekt kandidaten uit de openbare bronindex op merk en modelfamilie. Dit zijn kandidaten, geen automatische bevestiging van generatie, motor of uitrusting. ADAC toont een selectie recente tests, geen volledige historische catalogus. Je kunt ook een directe HTTPS-modelrapportlink van een van deze drie bronnen invoeren. Controleer het originele rapport en bevestig de uitvoering vóór koppelen. De server controleert officiële host, rapportpad en merk/modelfamilie in de titel; bij twijfel wordt geen rapport gekoppeld.
 
@@ -43,7 +53,7 @@ CARFAX en carVertical worden niet automatisch bevraagd of aangekocht. Car-Pass e
 
 De interface heeft een donkere grafietstijl met duidelijke panelen, grotere tekst, hoog contrast en leesbare mobiele statistieken. Afdrukken gebruikt een lichte weergave.
 
-## VIN / chassisnummer (0.8.0)
+## VIN / chassisnummer (0.8.1)
 
 Kies **VIN / chassisnummer** bij het zoekveld of open een bewaard VIN. De app ondersteunt moderne VIN’s van 17 letters/cijfers zonder I, O of Q. Spaties en kleine letters worden genormaliseerd; oude kortere chassisnummers worden nog niet ondersteund. VIN-resultaten hebben een eigen overzicht, bronstatussen, doorzoekbare ontvangen velden, favorieten, recente zoekopdrachten, vergelijking, JSON-export, eigen waarnemingen en lokale PDF-rapporten. VIN en kenteken blijven afzonderlijke dossiers; er wordt geen voertuig op een vergelijkbaar model gekoppeld.
 
@@ -55,7 +65,7 @@ VIN-resultaten worden maximaal een uur gecachet; **Vernieuwen** kan bij ingescha
 
 ## Installeren en bijwerken
 
-Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.8.0**. Herlaad de pagina na de update. Poort: 8767.
+Umbrel → App Store → Community App Stores → voeg `https://github.com/TheRoyalCaptain/Kenteken-Check` toe. Ververs de store en installeer of update **Kenteken Check 0.8.1**. Herlaad de pagina na de update. Poort: 8767.
 
 De [GitHub Actions-build](https://github.com/TheRoyalCaptain/Kenteken-Check/actions) publiceert AMD64 en ARM64 in GHCR. Het pakket moet openbaar zijn. Umbrel verzorgt het toegangsscherm. Voor ophalen is internettoegang naar `opendata.rdw.nl` nodig; de externe koppeling gebruikt `123kentekencheck.nl`.
 
@@ -67,7 +77,7 @@ Aanvullende kentekendatasets omvatten keuringsvervaldata (`vkij-7mwc`), voertuig
 
 De twaalf TGK-datasets omvatten basisuitvoering, aandrijving, versnelling, energiebron, assen, koppelingen, carrosserie, merk, handelsbenaming, speciale doeleinden, rupsbandsets en intrekkingen. De app gebruikt het **exacte** typegoedkeuringsnummer, en waar de dataset dat verlangt ook de exacte variant en uitvoering. Geen koppeling bij ontbrekende benodigde codes, geen afkappen van revisienummers en geen gok op een vergelijkbaar model. Goedkeuringsrevisies en technische grenswaarden behoren bij een typegoedkeuring en zijn geen bewijs van wijzigingen aan dit individuele voertuig.
 
-## Aanvullende Nederlandse en Europese bronnen (0.8.0)
+## Aanvullende Nederlandse en Europese bronnen (0.8.1)
 
 De app gebruikt Nederlandse en Europese voertuiggegevens. Wikimedia Commons levert daarnaast herbruikbare voorbeeldfoto’s. Geen Amerikaanse VIN-, EPA-, crashtest- of modeldatabronnen. Alle aanvullende bronnen staan met status in zoekresultaten, **Bronnen** en **Alle ontvangen data**.
 

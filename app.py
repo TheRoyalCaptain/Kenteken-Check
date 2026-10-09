@@ -45,7 +45,7 @@ RELATED = {
     'telleruitleg': ('jqs4-4kvw', 'Uitleg tellerstandoordeel'),
 }
 CACHE_SECONDS = 3600
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 CATALOG = json.loads((ROOT / 'rdw_catalog.json').read_text())
 TYPE_APPROVALS = {('tgk_' + row['id'].replace('-', '_')): (row['id'], row['name'].replace('Open Data RDW: TGK ', 'Typegoedkeuring: '))
                   for row in CATALOG['datasets'] if row['name'].startswith('Open Data RDW: TGK ')}
@@ -286,6 +286,25 @@ def history(plate, full=False):
         previous.update({key: rows for key, rows in payload['sections'].items() if rows is not None})
     return {'plate': plate, 'observations': events, 'note': 'Eigen waarnemingen sinds het opzoeken in deze app; geen gereconstrueerde historie van vóór die tijd.'}
 
+def archive_context(result):
+    """Expose a saved positive snapshot separately; never fill live fields with it."""
+    result['archive'] = None
+    if result['sections'].get('voertuig'):
+        return result
+    plate = normalize(result['plate'])
+    with database() as db:
+        records = db.execute('SELECT observed, last_seen, payload FROM observations WHERE plate=? AND observed<=? ORDER BY observed DESC, id DESC', (plate, result['fetched_at']))
+        for observed, last_seen, raw in records:
+            payload = json.loads(raw)
+            if not payload.get('sections', {}).get('voertuig'):
+                continue
+            result['archive'] = {'plate': plate, 'observed_at': observed, 'last_seen_at': last_seen,
+                                 'provenance': 'Eerder door deze app opgehaalde en lokaal bewaarde gegevens. Geen actuele registratie of bewijs van export/sloop.',
+                                 'sections': payload['sections'], 'sources': payload.get('sources', {}),
+                                 'source_status': source_statuses(payload['sections'], {})}
+            break
+    return result
+
 def lookup_vin(value, refresh=False, selection=None):
     try:value=vin.normalize(value)
     except ValueError as exc:raise LookupError(str(exc),400) from exc
@@ -331,7 +350,7 @@ def lookup(plate, refresh=False, selection=None):
         result = json.loads(cached[1])
         result['cached'] = True
         result['history'] = history(plate)
-        return result
+        return archive_context(result)
     # Keep independent datasets and saved history usable even without a current base record.
     warnings = []
     reasons = {}
@@ -400,7 +419,7 @@ def lookup(plate, refresh=False, selection=None):
             db.execute('INSERT OR REPLACE INTO cache VALUES (?, ?, ?)', (plate, result['fetched_at'], json.dumps(result)))
             db.execute('DELETE FROM cache WHERE fetched < ?', (time.time() - 7 * 86400,))
     result['history'] = history(plate)
-    return result
+    return archive_context(result)
 
 def application(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET')

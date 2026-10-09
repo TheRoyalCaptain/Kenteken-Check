@@ -2,7 +2,7 @@ manifestVersion: 1
 id: kenteken-check
 category: utilities
 name: Kenteken Check
-version: "0.8.0"
+version: "0.8.1"
 tagline: Kenteken- en VIN-gegevens met duidelijke bronstatus
 description: >-
   Bekijk alle ontvangen kentekengegevens met een duidelijke status per bron:
@@ -12,11 +12,11 @@ description: >-
   API-koppeling gebruikt je eigen sleutel. Geen gegevens worden als compleet
   voorgesteld wanneer de bron ze niet levert.
 releaseNotes: >-
-  Nieuw: aankoopcheck met registratie-aandachtspunten en onbekende controles,
-  kostenplanner met eigen invoer en transparante berekeningen, en
-  informatiedekking per onderwerp. De JSON-export bevat ook aankoopcontroles
-  en je persoonlijke begroting. Geen verzonnen historie, dagwaarden of
-  belastingtarieven; bestaande kenteken- en VIN-bronnen blijven beschikbaar.
+  Nieuw: Archief & status voor kentekens zonder actuele registratie.
+  Eerder bewaarde voertuiggegevens blijven apart zichtbaar, doorzoekbaar en
+  exporteerbaar met hun oorspronkelijke waarnemingsdatum. Geen historische
+  APK of verzekering als actuele waarde, geen gok op export of sloop en
+  geen claim op een landelijk historisch kentekenarchief.
 developer: Kevin van Krugten
 website: https://github.com/TheRoyalCaptain/Kenteken-Check
 dependencies: []
